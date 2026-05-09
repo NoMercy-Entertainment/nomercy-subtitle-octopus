@@ -31,6 +31,16 @@ export interface OctopusOptions {
 	libassMemoryLimit?: number;
 	libassGlyphLimit?: number;
 
+	/**
+	 * Number of frames the renderer pre-computes ahead of `currentTime`. Forwarded
+	 * to the worker; stock libass-wasm ignores it, NoMercy fork builds use it for
+	 * the look-ahead render cache. Typical value: `10`.
+	 */
+	renderAhead?: number;
+
+	/** Convenience flag: shorthand for `renderMode: 'lossy'`. */
+	lossyRender?: boolean;
+
 	timeOffset?: number;
 	lazyFileLoading?: boolean;
 	dropAllAnimations?: boolean;
