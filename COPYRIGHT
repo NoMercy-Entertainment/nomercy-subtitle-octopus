@@ -1,0 +1,25 @@
+The WASM binaries in the public/ directory of this package are derived from
+libass-wasm (SubtitleOctopus), originally authored by Dador and maintained by
+the Jellyfin project contributors.
+
+Source: https://github.com/jellyfin/jellyfin-web (libass-wasm integration)
+        https://github.com/libass/libass
+
+License: GNU Lesser General Public License v2.1 (LGPL-2.1)
+The full text of LGPL-2.1 is available at:
+https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+
+The TypeScript wrapper code in src/ is original work by NoMercy Entertainment
+and is licensed under MIT.
+
+---
+
+libass is Copyright (C) 2006-2022 libass contributors.
+SubtitleOctopus WASM port is Copyright (C) Dador and contributors.
+Jellyfin libass-wasm integration is Copyright (C) Jellyfin contributors.
+
+This package distributes the compiled WASM output only. The wrapper does not
+incorporate any source code from the upstream projects.
+
+TODO(NME-octopus): Replace vendored WASM binaries with an in-house Emscripten
+build that includes NoMercy-specific patches directly in the C layer.
