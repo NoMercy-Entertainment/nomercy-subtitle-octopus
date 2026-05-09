@@ -1,4 +1,5 @@
 import type { OctopusOptions } from './types';
+import { isAbsoluteUrl } from './url-resolution';
 
 /**
  * Patch 1 — Auth pre-fetch on the main thread.
@@ -43,14 +44,45 @@ export function resolveAuthOrigin(options: Pick<OctopusOptions, 'authOrigin'>): 
 	}
 }
 
-/** True when the token should accompany a request to `url`. */
+/**
+ * True when the token should accompany a request to `url`.
+ *
+ * Decision matrix:
+ *   - Relative / root-relative paths → resolve against current origin → add.
+ *   - Protocol-relative (`//host/path`) → compare authority to authOrigin.
+ *   - Absolute with a scheme — `http(s)` parses; same-origin → add.
+ *     Other schemes (`data:`, `blob:`, `file:`, `nmsync:`, etc.) → never add;
+ *     either the scheme can't carry the header (browser drops it) or the
+ *     consumer's resolver should have rewritten the URL to a fetchable form
+ *     before reaching this point.
+ */
 function shouldAddAuth(url: string, authOrigin: string): boolean {
 	if (!authOrigin)
 		return false;
-	// Same-origin and relative paths always get the header.
-	if (!url.startsWith('http'))
+	if (!isAbsoluteUrl(url))
 		return true;
-	return url.startsWith(authOrigin);
+
+	// Protocol-relative — borrow the page's protocol to parse, then compare.
+	if (url.startsWith('//')) {
+		try {
+			return new URL(`https:${url}`).origin === authOrigin;
+		}
+		catch {
+			return false;
+		}
+	}
+
+	// Schemed URL — only http(s) are eligible. Other schemes (`data:`, `blob:`,
+	// `file:`, `nmsync:`, etc.) opt out entirely: fetch() either can't carry the
+	// header or the scheme escapes the origin model.
+	if (!/^https?:/i.test(url))
+		return false;
+	try {
+		return new URL(url).origin === authOrigin;
+	}
+	catch {
+		return false;
+	}
 }
 
 /**
