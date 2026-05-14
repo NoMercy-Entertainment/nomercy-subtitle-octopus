@@ -3,7 +3,6 @@ export interface SubtitlesOctopusOptions {
 	subUrl: string;
 	fonts?: string[];
 	lossyRender?: boolean;
-	accessToken?: string;
 	targetFps?: number;
 	debug?: boolean;
 	blendRender?: boolean;

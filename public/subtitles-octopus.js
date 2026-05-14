@@ -72,8 +72,6 @@ export function SubtitlesOctopus(options) {
 
 	self.hasAlphaBug = false;
 
-	self.accessToken = options.accessToken || null; // Access token for some services (optional)
-
 	// private
 	let targetWidth; // Width of render target
 	let targetHeight; // Height of render target
@@ -184,7 +182,6 @@ export function SubtitlesOctopus(options) {
 			libassGlyphLimit: self.libassGlyphLimit,
 			renderOnDemand: self.renderAhead > 0,
 			dropAllAnimations: self.dropAllAnimations,
-			accessToken: self.accessToken,
 		});
 	};
 

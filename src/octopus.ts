@@ -1,5 +1,4 @@
 import type { OctopusEvents, OctopusOptions } from './types';
-import { resolveToken } from './auth';
 import { CanvasGeometry } from './canvas-geometry';
 import { isSupportedSubtitle, sweepOrphanCanvases } from './lifecycle';
 import { resolveUrl } from './url-resolution';
@@ -29,20 +28,22 @@ interface UpstreamInstance {
  * Wraps the upstream `SubtitlesOctopus` (vendored from libass-wasm) and
  * layers NoMercy patches around it:
  *
- *   Patch 1 (auth)     — `accessToken` forwarded to the upstream constructor;
- *                        the patched worker injects `Authorization: Bearer`
- *                        on subtitle / font / lazy-range XHRs.
- *   Patch 2 (worker)   — cross-origin Blob+importScripts shim is upstream
+ *   Patch 1 (worker)   — cross-origin Blob+importScripts shim is upstream
  *                        behaviour; nothing to do.
- *   Patch 3 (geometry) — `CanvasGeometry` ResizeObserver overrides upstream's
+ *   Patch 2 (geometry) — `CanvasGeometry` ResizeObserver overrides upstream's
  *                        `<video>`-anchored canvas position so the canvas
  *                        tracks the player's overlay through fullscreen /
  *                        theater / float transitions.
- *   Patch 4 (lifecycle)— same-URL no-op, race-token guards through async
+ *   Patch 3 (lifecycle)— same-URL no-op, race-token guards through async
  *                        loads, orphan-canvas sweep before mount.
- *   Patch 5 (urls)     — `basePath` prepend + RFC-3986 absolute-scheme
+ *   Patch 4 (urls)     — `basePath` prepend + RFC-3986 absolute-scheme
  *                        detection so custom schemes (`nmsync:`, `cast:`,
  *                        `data:`, `blob:`, `file:`) bypass the prefix.
+ *
+ * Authentication is the plugin layer's responsibility: the kit's auth fetch
+ * pre-fetches subtitle bytes and font binaries, then hands them to this
+ * renderer via `trackContent` / `availableFonts`. The worker never performs
+ * authenticated network I/O.
  *
  * Public API uses overloaded noun() / noun(value) form — no setX methods.
  */
@@ -206,19 +207,10 @@ export class NMSubtitleOctopus {
 		if (id !== this.loadId)
 			return;
 
-		// Patch 1 (legacy): forward accessToken only when content is supplied as a
-		// URL — the deprecated path where the worker fetches subtitle / font XHRs.
-		// When `subContent` or `availableFonts` is supplied (the preferred path),
-		// the plugin layer has already fetched everything via the kit auth pipeline
-		// and the worker never performs authenticated network I/O.
-		const isContentBased = 'subContent' in extra || this.options.availableFonts !== undefined;
-		const accessToken = isContentBased ? undefined : resolveToken(this.options.accessToken);
-
 		const upstreamOpts: UpstreamOptions = {
 			video: this.options.video,
 			subUrl: '',
 			...extra,
-			accessToken,
 			workerUrl: this.options.workerUrl ?? DEFAULT_WORKER_URL,
 			legacyWorkerUrl: this.options.legacyWorkerUrl ?? DEFAULT_LEGACY_WORKER_URL,
 			fallbackFont: this.options.fallbackFont ?? DEFAULT_FALLBACK_FONT,

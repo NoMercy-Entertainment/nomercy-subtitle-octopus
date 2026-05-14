@@ -1,4 +1,3 @@
-export { resolveAuthOrigin, resolveToken } from './auth';
 export { CanvasGeometry } from './canvas-geometry';
 export { isSupportedSubtitle, Lifecycle, RaceToken, sweepOrphanCanvases } from './lifecycle';
 export { NMSubtitleOctopus } from './octopus';

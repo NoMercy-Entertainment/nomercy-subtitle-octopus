@@ -21,16 +21,23 @@ This package is **not** a fork of upstream — it's a thin consumer-side wrapper
 ```ts
 import { NMSubtitleOctopus } from '@nomercy-entertainment/nomercy-subtitle-octopus';
 
+// Pre-fetch subtitle bytes and font binaries with whatever auth pipeline you use.
+const trackContent = await fetchAuthedText('/episode-1.ass');
+const availableFonts = await fetchAuthedFonts('/fonts/');
+
 const octopus = new NMSubtitleOctopus({
 	video: videoElement,
-	accessToken: () => store.bearerToken,
-	basePath: 'https://cdn.example.com/subtitles/',
+	trackContent,
+	availableFonts,
 	geometrySource: playerContainer,
 });
 
 octopus.on('rendererReady', ({ url }) => console.log('renderer ready', url));
-octopus.trackUrl('/episode-1.ass');
 ```
+
+The renderer never performs authenticated network I/O — your consumer (or the
+NoMercy player kit) pre-fetches every byte the worker needs and passes it as
+`trackContent` plus a `name → blob:URL` font map.
 
 ## License
 

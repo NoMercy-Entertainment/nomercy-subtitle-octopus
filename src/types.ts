@@ -51,19 +51,6 @@ export interface OctopusOptions {
 	dropAllAnimations?: boolean;
 	debug?: boolean;
 
-	/**
-	 * Bearer token or factory forwarded to the upstream worker.
-	 * @deprecated The plugin layer now pre-fetches all content (subtitle body +
-	 * font binaries) via the kit auth pipeline and passes them as `trackContent` /
-	 * `availableFonts`. The worker never performs authenticated network I/O.
-	 * Planned removal: 2.1.
-	 */
-	accessToken?: string | (() => string | undefined);
-	/**
-	 * Origin that receives the Authorization header in the worker.
-	 * @deprecated Superseded by the plugin-layer pre-fetch approach. Planned removal: 2.1.
-	 */
-	authOrigin?: string;
 	/** Prepended to relative subtitle and font URLs before passing to the worker. */
 	basePath?: string;
 	/** Element whose geometry drives the canvas overlay. Defaults to the video's parent. */
