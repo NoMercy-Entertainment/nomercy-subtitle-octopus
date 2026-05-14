@@ -697,7 +697,9 @@ export function SubtitlesOctopus(options) {
 				break;
 			}
 			case 'window': {
-				window[data.method]();
+				if (data.method === 'requestAnimationFrame' || data.method === 'cancelAnimationFrame') {
+					window[data.method]();
+				}
 				break;
 			}
 			case 'canvas': {

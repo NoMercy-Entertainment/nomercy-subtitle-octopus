@@ -206,10 +206,13 @@ export class NMSubtitleOctopus {
 		if (id !== this.loadId)
 			return;
 
-		// Patch 1: forward the resolved access token to upstream — its patched
-		// worker (vendored in `public/`) injects the Authorization header on
-		// subtitle / font / lazy-range XHRs same-origin.
-		const accessToken = resolveToken(this.options.accessToken);
+		// Patch 1 (legacy): forward accessToken only when content is supplied as a
+		// URL — the deprecated path where the worker fetches subtitle / font XHRs.
+		// When `subContent` or `availableFonts` is supplied (the preferred path),
+		// the plugin layer has already fetched everything via the kit auth pipeline
+		// and the worker never performs authenticated network I/O.
+		const isContentBased = 'subContent' in extra || this.options.availableFonts !== undefined;
+		const accessToken = isContentBased ? undefined : resolveToken(this.options.accessToken);
 
 		const upstreamOpts: UpstreamOptions = {
 			video: this.options.video,

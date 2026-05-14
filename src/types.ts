@@ -7,9 +7,14 @@ export interface OctopusOptions {
 	/** Explicit canvas element. When omitted the wrapper creates one. */
 	canvas?: HTMLCanvasElement;
 
-	/** Initial subtitle URL to load (ASS/SSA only). */
+	/**
+	 * Initial subtitle URL to load (ASS/SSA only).
+	 * @deprecated Use `trackContent` — the plugin layer pre-fetches the ASS body
+	 * via the kit auth pipeline and passes it as inline content. URL-based loading
+	 * involves the worker in network I/O which bypasses auth. Planned removal: 2.1.
+	 */
 	trackUrl?: string;
-	/** Raw subtitle content string (ASS/SSA). */
+	/** Raw subtitle content string (ASS/SSA). Preferred over `trackUrl`. */
 	trackContent?: string;
 
 	/** Worker JS URL. Defaults to the bundled public/subtitles-octopus-worker.js. */
@@ -46,9 +51,18 @@ export interface OctopusOptions {
 	dropAllAnimations?: boolean;
 	debug?: boolean;
 
-	/** Bearer token or factory. Auth pre-fetch happens on main thread; worker is never involved. */
+	/**
+	 * Bearer token or factory forwarded to the upstream worker.
+	 * @deprecated The plugin layer now pre-fetches all content (subtitle body +
+	 * font binaries) via the kit auth pipeline and passes them as `trackContent` /
+	 * `availableFonts`. The worker never performs authenticated network I/O.
+	 * Planned removal: 2.1.
+	 */
 	accessToken?: string | (() => string | undefined);
-	/** Origin that receives the Authorization header. Defaults to location.origin. */
+	/**
+	 * Origin that receives the Authorization header in the worker.
+	 * @deprecated Superseded by the plugin-layer pre-fetch approach. Planned removal: 2.1.
+	 */
 	authOrigin?: string;
 	/** Prepended to relative subtitle and font URLs before passing to the worker. */
 	basePath?: string;
