@@ -188,8 +188,9 @@ export class NMSubtitleOctopus {
 			this.mountUpstream({
 				video: this.options.video,
 				subContent: content,
+				availableFonts: this.options.availableFonts,
 				fonts: fontUrls,
-			} as UpstreamOptions & { subContent: string }, id);
+			}, id);
 			return;
 		}
 
@@ -199,6 +200,7 @@ export class NMSubtitleOctopus {
 		this.mountUpstream({
 			video: this.options.video,
 			subUrl: resolvedSub,
+			availableFonts: this.options.availableFonts,
 			fonts: fontUrls,
 		}, id);
 	}
