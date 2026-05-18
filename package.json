@@ -53,11 +53,11 @@
 	},
 	"repository": {
 		"type": "git",
-		"url": "git+https://github.com/NoMercy-Entertainment/nomercy-video-player.git"
+		"url": "git+https://github.com/NoMercy-Entertainment/nomercy-subtitle-octopus.git"
 	},
-	"homepage": "https://docs.nomercy.tv/player/video/plugins/octopus/",
+	"homepage": "https://docs.nomercy.tv/nomercy-video-player/plugins/octopus/",
 	"bugs": {
-		"url": "https://github.com/NoMercy-Entertainment/nomercy-video-player/issues"
+		"url": "https://github.com/NoMercy-Entertainment/nomercy-subtitle-octopus/issues"
 	},
 	"publishConfig": {
 		"access": "public",
