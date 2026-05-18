@@ -52,7 +52,16 @@
 		"vite-plugin-dts": "4.5.4",
 		"vitest": "^4.1.5"
 	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/NoMercy-Entertainment/nomercy-video-player.git"
+	},
+	"homepage": "https://docs.nomercy.tv/player/video/plugins/octopus/",
+	"bugs": {
+		"url": "https://github.com/NoMercy-Entertainment/nomercy-video-player/issues"
+	},
 	"publishConfig": {
-		"access": "public"
+		"access": "public",
+		"tag": "beta"
 	}
 }

@@ -16,6 +16,37 @@ This package is **not** a fork of upstream — it's a thin consumer-side wrapper
 
 `public/subtitles-octopus-worker.{js,wasm}` and `public/default.ttf` are vendored from upstream `libass-wasm@4.1.0` pending a first NoMercy build out of the sister fork (`@nomercy-entertainment/libass-wasm`). License chain reproduced in `COPYRIGHT`.
 
+## Worker files — copy to public
+
+The libass WASM worker files ship inside this package's `dist/` directory. Your build tool must copy them into the public/static directory so the browser can load them:
+
+```ts
+// vite.config.ts
+import { viteStaticCopy } from 'vite-plugin-static-copy';
+
+export default {
+  plugins: [
+    viteStaticCopy({
+      targets: [
+        {
+          src: 'node_modules/@nomercy-entertainment/nomercy-subtitle-octopus/dist/*.js',
+          dest: 'static',
+        },
+      ],
+    }),
+  ],
+};
+```
+
+Then pass the copied paths when registering the plugin:
+
+```ts
+player.addPlugin(OctopusPlugin, {
+  workerUrl: '/static/subtitles-octopus-worker.js',
+  legacyWorkerUrl: '/static/subtitles-octopus-worker-legacy.js',
+});
+```
+
 ## Usage
 
 ```ts
