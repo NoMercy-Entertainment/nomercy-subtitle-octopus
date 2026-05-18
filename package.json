@@ -34,8 +34,7 @@
 	"files": [
 		"COPYRIGHT",
 		"README.md",
-		"dist",
-		"public"
+		"dist"
 	],
 	"scripts": {
 		"build": "vite build",

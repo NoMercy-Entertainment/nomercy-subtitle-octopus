@@ -29,7 +29,7 @@ export default {
     viteStaticCopy({
       targets: [
         {
-          src: 'node_modules/@nomercy-entertainment/nomercy-subtitle-octopus/dist/*.js',
+          src: 'node_modules/@nomercy-entertainment/nomercy-subtitle-octopus/dist/subtitles-octopus-worker*.{js,wasm,data}',
           dest: 'static',
         },
       ],
