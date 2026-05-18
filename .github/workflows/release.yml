@@ -1,0 +1,44 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+
+jobs:
+  create-release:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+
+      - name: Get version from package.json
+        id: get_version
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./package.json').version")
+          echo "PACKAGE_VERSION=${PACKAGE_VERSION}" >> $GITHUB_ENV
+
+      - name: Create tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git rev-parse "${PACKAGE_VERSION}" >/dev/null 2>&1; then
+            echo "Tag ${PACKAGE_VERSION} already exists — skipping tag creation"
+          else
+            git tag -a "${PACKAGE_VERSION}" -m "Release ${PACKAGE_VERSION}"
+            git push origin "${PACKAGE_VERSION}"
+          fi
+
+      - name: Create GitHub Release
+        uses: actions/create-release@v1
+        with:
+          tag_name: '${{ env.PACKAGE_VERSION }}'
+          release_name: 'Release ${{ env.PACKAGE_VERSION }}'
+          draft: false
+          prerelease: ${{ contains(env.PACKAGE_VERSION, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
