@@ -12,6 +12,14 @@
 		"Stoney Eagle <stoney@nomercy.tv>"
 	],
 	"license": "MIT",
+	"homepage": "https://docs.nomercy.tv/nomercy-video-player/plugins/octopus/",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/NoMercy-Entertainment/nomercy-subtitle-octopus.git"
+	},
+	"bugs": {
+		"url": "https://github.com/NoMercy-Entertainment/nomercy-subtitle-octopus/issues"
+	},
 	"keywords": [
 		"subtitles",
 		"ass",
@@ -50,14 +58,6 @@
 		"vite": "7.3.2",
 		"vite-plugin-dts": "4.5.4",
 		"vitest": "^4.1.5"
-	},
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/NoMercy-Entertainment/nomercy-subtitle-octopus.git"
-	},
-	"homepage": "https://docs.nomercy.tv/nomercy-video-player/plugins/octopus/",
-	"bugs": {
-		"url": "https://github.com/NoMercy-Entertainment/nomercy-subtitle-octopus/issues"
 	},
 	"publishConfig": {
 		"access": "public",
