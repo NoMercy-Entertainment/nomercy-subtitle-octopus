@@ -16,6 +16,10 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// ── Import under test ─────────────────────────────────────────────────────────
+
+import { NMSubtitleOctopus } from '../octopus';
+
 // ── Mock upstream SubtitlesOctopus ────────────────────────────────────────────
 // We intercept the vendored JS import so NMSubtitleOctopus still runs its
 // real mountUpstream() logic while we observe what it hands to the upstream.
@@ -32,10 +36,6 @@ vi.mock('../../public/subtitles-octopus.js', () => {
 	return { default: MockSubtitlesOctopus };
 });
 
-// ── Import under test ─────────────────────────────────────────────────────────
-
-import { NMSubtitleOctopus } from '../octopus';
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeVideoElement(): HTMLVideoElement {
@@ -48,7 +48,7 @@ function makeVideoElement(): HTMLVideoElement {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('NMSubtitleOctopus — availableFonts forwarding', () => {
+describe('nMSubtitleOctopus — availableFonts forwarding', () => {
 	beforeEach(() => {
 		upstreamCalls.length = 0;
 	});
@@ -83,7 +83,7 @@ describe('NMSubtitleOctopus — availableFonts forwarding', () => {
 
 	it('forwards availableFonts to the upstream constructor on the URL path', async () => {
 		const video = makeVideoElement();
-		const fonts: Record<string, string> = { 'myfont': 'blob:mock-myfont' };
+		const fonts: Record<string, string> = { myfont: 'blob:mock-myfont' };
 
 		const instance = new NMSubtitleOctopus({
 			video,

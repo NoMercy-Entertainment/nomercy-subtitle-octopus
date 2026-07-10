@@ -25,16 +25,16 @@ The libass WASM worker files ship inside this package's `dist/` directory. Your 
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 export default {
-  plugins: [
-    viteStaticCopy({
-      targets: [
-        {
-          src: 'node_modules/@nomercy-entertainment/nomercy-subtitle-octopus/dist/subtitles-octopus-worker*.{js,wasm,data}',
-          dest: 'static',
-        },
-      ],
-    }),
-  ],
+	plugins: [
+		viteStaticCopy({
+			targets: [
+				{
+					src: 'node_modules/@nomercy-entertainment/nomercy-subtitle-octopus/dist/subtitles-octopus-worker*.{js,wasm,data}',
+					dest: 'static',
+				},
+			],
+		}),
+	],
 };
 ```
 
@@ -42,8 +42,8 @@ Then pass the copied paths when registering the plugin:
 
 ```ts
 player.addPlugin(OctopusPlugin, {
-  workerUrl: '/static/subtitles-octopus-worker.js',
-  legacyWorkerUrl: '/static/subtitles-octopus-worker-legacy.js',
+	workerUrl: '/static/subtitles-octopus-worker.js',
+	legacyWorkerUrl: '/static/subtitles-octopus-worker-legacy.js',
 });
 ```
 
