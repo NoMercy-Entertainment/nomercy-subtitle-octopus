@@ -3,37 +3,34 @@ import { CanvasGeometry } from './canvas-geometry';
 import { isSupportedSubtitle, sweepOrphanCanvases } from './lifecycle';
 import { resolveUrl } from './url-resolution';
 import { EventEmitter } from './worker-bridge';
-// eslint-disable-next-line ts/ban-ts-comment
-// @ts-ignore — upstream JS file shipped alongside its declaration in `public/`.
-import SubtitlesOctopus from '../public/subtitles-octopus.js';
-import type { SubtitlesOctopusOptions as UpstreamOptions } from '../public/subtitles-octopus';
+import { LibassRenderer } from './renderer';
 
 /**
  * Default worker paths relative to this package's `public/` directory.
  * Consumers override via `options.workerUrl` / `options.legacyWorkerUrl`.
  */
-const DEFAULT_WORKER_URL = new URL('../public/subtitles-octopus-worker.js', import.meta.url).href;
-const DEFAULT_LEGACY_WORKER_URL = new URL('../public/subtitles-octopus-worker-legacy.js', import.meta.url).href;
-const DEFAULT_FALLBACK_FONT = new URL('../public/default.ttf', import.meta.url).href;
-
-interface UpstreamInstance {
-	worker: Worker;
-	canvasParent: HTMLDivElement;
-	dispose: () => void;
-}
+// Our own worker, built by nomercy-libass from the same pinned sources as the
+// desktop, Android and Apple builds — not the vendored SubtitlesOctopus one.
+//
+// The vendored build was a JavaScript port of libass whose version nobody here
+// chose and whose fixes arrived when someone else made them, and it was the
+// last surface in the trio rendering ASS through code we did not build.
+//
+// There is no legacy asm.js worker any more. Our pipeline emits wasm only, and
+// a browser without WebAssembly is not one this player targets on any other
+// surface; a consumer that needs one still passes it through
+// `options.legacyWorkerUrl`, which is now simply another worker url.
+const DEFAULT_WORKER_URL = new URL('../public/nomercy-libass-worker.js', import.meta.url).href;
 
 /**
  * NMSubtitleOctopus — NoMercy headless libass renderer wrapper.
  *
- * Wraps the upstream `SubtitlesOctopus` (vendored from libass-wasm) and
- * layers NoMercy patches around it:
+ * Drives our own libass worker (see `renderer.ts`) and layers the NoMercy
+ * behaviour the video player depends on:
  *
- *   Patch 1 (worker)   — cross-origin Blob+importScripts shim is upstream
- *                        behaviour; nothing to do.
- *   Patch 2 (geometry) — `CanvasGeometry` ResizeObserver overrides upstream's
- *                        `<video>`-anchored canvas position so the canvas
- *                        tracks the player's overlay through fullscreen /
- *                        theater / float transitions.
+ *   Geometry  — `CanvasGeometry` keeps the overlay on the player's box rather
+ *               than the video element's, so it tracks fullscreen, theater and
+ *               float transitions.
  *   Patch 3 (lifecycle)— same-URL no-op, race-token guards through async
  *                        loads, orphan-canvas sweep before mount.
  *   Patch 4 (urls)     — `basePath` prepend + RFC-3986 absolute-scheme
@@ -51,7 +48,7 @@ export class NMSubtitleOctopus {
 	private readonly options: OctopusOptions;
 	private readonly emitter = new EventEmitter();
 
-	private upstream: UpstreamInstance | null = null;
+	private renderer: LibassRenderer | null = null;
 	private geometry: CanvasGeometry | null = null;
 
 	private _trackUrl: string | null = null;
@@ -87,7 +84,7 @@ export class NMSubtitleOctopus {
 			this.freeTrack();
 			return;
 		}
-		if (url === this._trackUrl && this.upstream)
+		if (url === this._trackUrl && this.renderer)
 			return;
 		if (!isSupportedSubtitle(url)) {
 			this.freeTrack();
@@ -113,9 +110,9 @@ export class NMSubtitleOctopus {
 	/**
 	 * Get the current playback position in seconds.
 	 *
-	 * Upstream syncs from the bound `<video>` element via its own listeners —
-	 * this method exists for parity and explicit control. Reading returns the
-	 * last value we cached.
+	 * The renderer reads the bound `<video>` every animation frame, so this is
+	 * for explicit control and headless tests. Reading returns the last value
+	 * we cached.
 	 */
 	currentTime(): number;
 	currentTime(seconds: number): void;
@@ -123,8 +120,8 @@ export class NMSubtitleOctopus {
 		if (seconds === undefined)
 			return this._currentTime;
 		this._currentTime = seconds;
-		// Upstream tracks the video element automatically; explicit setter
-		// is a no-op against the renderer but useful for headless tests.
+		// The render loop reads the element itself; this only records what a
+		// caller asked for.
 	}
 
 	/** Tear down the current track without destroying the renderer. */
@@ -132,7 +129,7 @@ export class NMSubtitleOctopus {
 		this._trackUrl = null;
 		this._trackContent = null;
 		this.loadId += 1;
-		this.disposeUpstream();
+		this.teardown();
 	}
 
 	/** Signal a resize so the canvas geometry syncs immediately (Patch 3). */
@@ -144,7 +141,7 @@ export class NMSubtitleOctopus {
 	/** Tear down the renderer, worker, and all DOM side-effects. */
 	dispose(): void {
 		this.loadId += 1;
-		this.disposeUpstream();
+		this.teardown();
 		this._trackUrl = null;
 		this._trackContent = null;
 		this.emitter.removeAll();
@@ -158,9 +155,9 @@ export class NMSubtitleOctopus {
 		this.emitter.off(name, fn);
 	}
 
-	/** Direct handle to the upstream renderer. Plugin retains lifecycle ownership. */
-	upstreamInstance(): UpstreamInstance | null {
-		return this.upstream;
+	/** Direct handle to the renderer. The plugin retains lifecycle ownership. */
+	rendererInstance(): LibassRenderer | null {
+		return this.renderer;
 	}
 
 	// ---------------------------------------------------------------------------
@@ -171,7 +168,7 @@ export class NMSubtitleOctopus {
 		const id = ++this.loadId;
 
 		// Patch 4: tear down previous instance and orphan canvases.
-		this.disposeUpstream();
+		this.teardown();
 		const container = this.resolveContainer();
 		sweepOrphanCanvases(container);
 
@@ -181,67 +178,89 @@ export class NMSubtitleOctopus {
 			resolveUrl(this.options.basePath, f),
 		);
 
-		// Inline-content path bypasses upstream URL fetch entirely.
+		// Inline content is the preferred path: the plugin already fetched it
+		// through the kit's authenticated pipeline.
 		if (content && !url) {
 			this._trackContent = content;
 			this._trackUrl = null;
-			this.mountUpstream({
-				video: this.options.video,
-				subContent: content,
-				availableFonts: this.options.availableFonts,
-				fonts: fontUrls,
-			}, id);
+			void this.mount(content, id);
 			return;
 		}
 
 		this._trackUrl = url;
 		this._trackContent = null;
 
-		this.mountUpstream({
-			video: this.options.video,
-			subUrl: resolvedSub,
-			availableFonts: this.options.availableFonts,
-			fonts: fontUrls,
-		}, id);
+		// Fetched here rather than in the worker, for the same reason the fonts
+		// are: the request has to carry the viewer's token.
+		const response = await fetch(resolvedSub);
+		if (!response.ok) {
+			this.emitter.emit('error', new Error(`the subtitle at ${resolvedSub} returned ${response.status}`));
+			return;
+		}
+		void this.mount(await response.text(), id);
 	}
 
-	private mountUpstream(extra: Partial<UpstreamOptions>, id: number): void {
+	// Fonts are bytes by the time they reach here.
+	//
+	// The worker performs no network I/O on purpose: on a real install every
+	// sidecar sits behind the same bearer token as the stream, and a worker
+	// fetching a font itself is a request that cannot carry it.
+	private async mount(content: string, id: number): Promise<void> {
 		if (id !== this.loadId)
 			return;
 
-		const upstreamOpts: UpstreamOptions = {
-			video: this.options.video,
-			subUrl: '',
-			...extra,
-			workerUrl: this.options.workerUrl ?? DEFAULT_WORKER_URL,
-			legacyWorkerUrl: this.options.legacyWorkerUrl ?? DEFAULT_LEGACY_WORKER_URL,
-			fallbackFont: this.options.fallbackFont ?? DEFAULT_FALLBACK_FONT,
-			targetFps: this.options.targetFps,
-			lazyFileLoading: this.options.lazyFileLoading,
-			lossyRender: this.options.lossyRender ?? this.options.renderMode === 'lossy',
-			blendRender: this.options.renderMode === 'wasm-blend' || this.options.renderMode === 'js-blend',
-			renderAhead: this.options.renderAhead,
-			debug: this.options.debug,
-			onReady: () => {
-				if (id !== this.loadId)
-					return;
-				this.emitter.emit('rendererReady', { url: this._trackUrl ?? '' });
+		const renderer = new LibassRenderer(
+			this.options,
+			this.options.workerUrl ?? DEFAULT_WORKER_URL,
+			{
+				onReady: () => {
+					if (id !== this.loadId)
+						return;
+					this.emitter.emit('rendererReady', { url: this._trackUrl ?? '' });
+				},
+				onError: (error: Error) => {
+					if (id !== this.loadId)
+						return;
+					this.emitter.emit('error', error);
+				},
 			},
-			onError: (event: unknown) => {
-				if (id !== this.loadId)
+		);
+
+		const container = this.resolveContainer();
+		container.appendChild(renderer.canvasParent);
+		this.renderer = renderer;
+
+		const fonts = await this.fetchFonts();
+		if (id !== this.loadId) {
+			renderer.dispose();
+			return;
+		}
+
+		await renderer.start(content, fonts);
+
+		const geometrySource = this.options.geometrySource ?? container;
+		this.attachGeometry(renderer.canvasParent, geometrySource);
+	}
+
+	private async fetchFonts(): Promise<Record<string, ArrayBuffer>> {
+		const named = Object.entries(this.options.availableFonts ?? {});
+		const listed = (this.options.fonts ?? []).map(url => [url, url] as const);
+		const wanted = [...named, ...listed];
+
+		const loaded: Record<string, ArrayBuffer> = {};
+		await Promise.all(wanted.map(async ([name, url]) => {
+			try {
+				const response = await fetch(resolveUrl(this.options.basePath, url));
+				if (!response.ok)
 					return;
-				const err = event instanceof Error ? event : new Error(String(event));
-				this.emitter.emit('error', err);
-			},
-		};
-
-		const Ctor = SubtitlesOctopus as unknown as new (opts: UpstreamOptions) => UpstreamInstance;
-		this.upstream = new Ctor(upstreamOpts);
-
-		// Patch 3: override upstream's <video>-anchored canvas geometry once
-		// the canvas parent is in the DOM.
-		const geometrySource = this.options.geometrySource ?? this.resolveContainer();
-		this.attachGeometry(this.upstream.canvasParent, geometrySource);
+				loaded[name] = await response.arrayBuffer();
+			}
+			catch {
+				// A face that will not load costs the typeface, not the film.
+				// The worker reports what it actually attached.
+			}
+		}));
+		return loaded;
 	}
 
 	private attachGeometry(canvasParent: HTMLElement, geometrySource: HTMLElement): void {
@@ -250,26 +269,12 @@ export class NMSubtitleOctopus {
 		this.geometry.attach();
 	}
 
-	private disposeUpstream(): void {
+	private teardown(): void {
 		this.geometry?.detach();
 		this.geometry = null;
-		const inst = this.upstream;
-		this.upstream = null;
-		if (!inst)
-			return;
-		try {
-			inst.worker?.terminate();
-		}
-		catch {
-			// Defensive — never let teardown errors escape.
-		}
-		try {
-			if (inst.canvasParent)
-				inst.dispose();
-		}
-		catch {
-			// Same — upstream's dispose can throw on a half-initialised state.
-		}
+		const renderer = this.renderer;
+		this.renderer = null;
+		renderer?.dispose();
 	}
 
 	private resolveContainer(): HTMLElement {

@@ -1,137 +1,167 @@
 /**
- * NMSubtitleOctopus unit tests.
+ * NMSubtitleOctopus against its own worker.
  *
- * Regression guard for the availableFonts forwarding bug:
- *   NMSubtitleOctopus received availableFonts from the plugin layer but
- *   mountUpstream() never included it in the upstreamOpts spread. The
- *   upstream SubtitlesOctopus constructor received availableFonts=[] (the
- *   default), so the worker skipped font loading entirely. ASS files with
- *   custom fonts rendered with the fallback font only; CJK scripts produced
- *   no visible text.
+ * These tests used to mock the vendored SubtitlesOctopus module and assert
+ * which options reached its constructor. The guarantee they existed for is
+ * kept — availableFonts must reach the renderer, because an ASS file whose
+ * faces are skipped renders in a fallback and CJK produces no visible text —
+ * but it is asserted one level lower now: the font arrives at the worker as
+ * BYTES, under the family name, before the track does.
  *
- * Fix: availableFonts is now included explicitly in both mountUpstream()
- * call sites (content path and URL path) and flows through to the upstream
- * constructor options.
+ * That is a stronger claim than the old one, and it is the exact failure that
+ * cost a session on the phone: a fetcher answering with text and no bytes let
+ * the track load, report success, and draw in the wrong typeface.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-// ── Import under test ─────────────────────────────────────────────────────────
-
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NMSubtitleOctopus } from '../octopus';
 
-// ── Mock upstream SubtitlesOctopus ────────────────────────────────────────────
-// We intercept the vendored JS import so NMSubtitleOctopus still runs its
-// real mountUpstream() logic while we observe what it hands to the upstream.
+interface SentMessage { type: string; [key: string]: unknown }
 
-const upstreamCalls: unknown[] = [];
+const sent: SentMessage[] = [];
+let lastWorker: FakeWorker | null = null;
 
-vi.mock('../../public/subtitles-octopus.js', () => {
-	function MockSubtitlesOctopus(this: { worker: Worker; canvasParent: HTMLDivElement; dispose: () => void }, options: unknown) {
-		upstreamCalls.push(options);
-		this.worker = { terminate: () => {} } as unknown as Worker;
-		this.canvasParent = document.createElement('div');
-		this.dispose = () => {};
+class FakeWorker {
+	private listeners: ((event: MessageEvent) => void)[] = [];
+
+	constructor(public url: string) {
+		lastWorker = this;
 	}
-	return { default: MockSubtitlesOctopus };
-});
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+	postMessage(message: SentMessage): void {
+		sent.push(message);
+	}
+
+	addEventListener(_name: string, fn: (event: MessageEvent) => void): void {
+		this.listeners.push(fn);
+	}
+
+	removeEventListener(_name: string, fn: (event: MessageEvent) => void): void {
+		this.listeners = this.listeners.filter(listener => listener !== fn);
+	}
+
+	terminate(): void {}
+
+	/** Answer as the real worker does once it holds a library and a renderer. */
+	announceReady(): void {
+		for (const listener of this.listeners)
+			listener({ data: { type: 'nm:ready' } } as MessageEvent);
+	}
+}
 
 function makeVideoElement(): HTMLVideoElement {
 	const video = document.createElement('video');
-	// happy-dom does not mount <video> in a parent by default; attach so
-	// resolveContainer() can walk parentElement.
-	document.body.appendChild(video);
+	const parent = document.createElement('div');
+	parent.appendChild(video);
+	document.body.appendChild(parent);
 	return video;
 }
 
-// ── Tests ─────────────────────────────────────────────────────────────────────
+const ASS = '[Script Info]\n[V4+ Styles]\nStyle: Main,Negotiate Free,68\n[Events]\nDialogue: 0,0:00:01.00,0:00:03.00,Main,,0,0,0,,hello\n';
 
-describe('nMSubtitleOctopus — availableFonts forwarding', () => {
-	beforeEach(() => {
-		upstreamCalls.length = 0;
+beforeEach(() => {
+	sent.length = 0;
+	lastWorker = null;
+	document.body.innerHTML = '';
+	vi.stubGlobal('Worker', FakeWorker);
+	// happy-dom has no OffscreenCanvas, and transferControlToOffscreen is what
+	// the renderer hands the worker.
+	Object.defineProperty(HTMLCanvasElement.prototype, 'transferControlToOffscreen', {
+		configurable: true,
+		value: () => ({ transferred: true }),
 	});
+	vi.stubGlobal('requestAnimationFrame', () => 0);
+	vi.stubGlobal('cancelAnimationFrame', () => {});
+});
 
-	afterEach(() => {
-		document.body.innerHTML = '';
-		vi.clearAllMocks();
-	});
+async function settle(): Promise<void> {
+	await new Promise(resolve => setTimeout(resolve, 0));
+	await new Promise(resolve => setTimeout(resolve, 0));
+}
 
-	it('forwards availableFonts to the upstream constructor on the content path', async () => {
-		const video = makeVideoElement();
-		const fonts: Record<string, string> = {
-			'noto sans': 'blob:mock-noto',
-			'arial': 'blob:mock-arial',
-		};
+describe('nMSubtitleOctopus — the worker protocol', () => {
+	it('sends every font before the track, because libass resolves a face as it draws', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => ({
+			ok: true,
+			status: 200,
+			arrayBuffer: async () => new Uint8Array([0, 1, 2, 3]).buffer,
+		})));
 
-		const instance = new NMSubtitleOctopus({
-			video,
-			trackContent: '[Script Info]\nScriptType: v4.00+\n\n[V4+ Styles]\n\n[Events]\n',
-			availableFonts: fonts,
+		const player = new NMSubtitleOctopus({
+			video: makeVideoElement(),
+			trackContent: ASS,
+			availableFonts: { 'negotiate free': 'https://media.test/negotiate.ttf' },
 		});
+		await settle();
 
-		// NMSubtitleOctopus defers the load via Promise.resolve().then(...)
-		await new Promise(r => setTimeout(r, 0));
+		const order = sent.map(message => message.type);
+		expect(order).toContain('nm:init');
+		expect(order.indexOf('nm:font')).toBeGreaterThanOrEqual(0);
+		expect(order.indexOf('nm:font')).toBeLessThan(order.indexOf('nm:track'));
+		expect(sent.find(message => message.type === 'nm:track')?.content).toBe(ASS);
 
-		expect(upstreamCalls).toHaveLength(1);
-		const passedOpts = upstreamCalls[0] as Record<string, unknown>;
-		expect(passedOpts.availableFonts).toEqual(fonts);
-
-		instance.dispose();
+		player.dispose();
 	});
 
-	it('forwards availableFonts to the upstream constructor on the URL path', async () => {
-		const video = makeVideoElement();
-		const fonts: Record<string, string> = { myfont: 'blob:mock-myfont' };
+	it('hands the worker font bytes, not a url and not a string', async () => {
+		const bytes = new Uint8Array([1, 2, 3, 4, 5]).buffer;
+		vi.stubGlobal('fetch', vi.fn(async () => ({
+			ok: true,
+			status: 200,
+			arrayBuffer: async () => bytes,
+		})));
 
-		const instance = new NMSubtitleOctopus({
-			video,
-			trackUrl: 'https://cdn.example.com/sub.ass',
-			availableFonts: fonts,
+		const player = new NMSubtitleOctopus({
+			video: makeVideoElement(),
+			trackContent: ASS,
+			availableFonts: { 'negotiate free': 'https://media.test/negotiate.ttf' },
 		});
+		await settle();
 
-		await new Promise(r => setTimeout(r, 0));
+		const font = sent.find(message => message.type === 'nm:font');
+		expect(font?.name).toBe('negotiate free');
+		expect(font?.bytes).toBeInstanceOf(ArrayBuffer);
+		expect((font?.bytes as ArrayBuffer).byteLength).toBe(5);
 
-		expect(upstreamCalls).toHaveLength(1);
-		const passedOpts = upstreamCalls[0] as Record<string, unknown>;
-		expect(passedOpts.availableFonts).toEqual(fonts);
-
-		instance.dispose();
+		player.dispose();
 	});
 
-	it('passes availableFonts as empty object when not provided (not an empty array)', async () => {
-		const video = makeVideoElement();
+	it('attaches nothing when a face will not load, and still loads the track', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => ({
+			ok: false,
+			status: 404,
+			arrayBuffer: async () => new ArrayBuffer(0),
+		})));
 
-		const instance = new NMSubtitleOctopus({
-			video,
-			trackContent: '[Script Info]\n\n[Events]\n',
+		const player = new NMSubtitleOctopus({
+			video: makeVideoElement(),
+			trackContent: ASS,
+			availableFonts: { 'negotiate free': 'https://media.test/missing.ttf' },
 		});
+		await settle();
 
-		await new Promise(r => setTimeout(r, 0));
+		expect(sent.find(message => message.type === 'nm:font')).toBeUndefined();
+		expect(sent.find(message => message.type === 'nm:track')).toBeDefined();
 
-		expect(upstreamCalls).toHaveLength(1);
-		const passedOpts = upstreamCalls[0] as Record<string, unknown>;
-		// When no availableFonts is provided, it should be undefined or absent —
-		// the upstream JS defaults it to [] internally. What matters: it must NOT
-		// be a non-empty object that would confuse the worker's hasOwnProperty check.
-		const received = passedOpts.availableFonts;
-		expect(received === undefined || received === null || (Array.isArray(received) && received.length === 0)).toBe(true);
-
-		instance.dispose();
+		player.dispose();
 	});
 
-	it('subContent is forwarded on the content path (regression: was cast as UpstreamOptions)', async () => {
-		const video = makeVideoElement();
-		const content = '[Script Info]\nScriptType: v4.00+\n\n[Events]\n';
+	it('reports the renderer ready only once the worker says it is', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => ({
+			ok: true,
+			status: 200,
+			arrayBuffer: async () => new ArrayBuffer(4),
+		})));
 
-		const instance = new NMSubtitleOctopus({ video, trackContent: content });
-		await new Promise(r => setTimeout(r, 0));
+		const ready = vi.fn();
+		const player = new NMSubtitleOctopus({ video: makeVideoElement(), trackContent: ASS });
+		player.on('rendererReady', ready);
+		await settle();
 
-		expect(upstreamCalls).toHaveLength(1);
-		const passedOpts = upstreamCalls[0] as Record<string, unknown>;
-		expect(passedOpts.subContent).toBe(content);
+		expect(ready).not.toHaveBeenCalled();
+		lastWorker?.announceReady();
+		expect(ready).toHaveBeenCalledTimes(1);
 
-		instance.dispose();
+		player.dispose();
 	});
 });

@@ -17,7 +17,7 @@ export interface OctopusOptions {
 	/** Raw subtitle content string (ASS/SSA). Preferred over `trackUrl`. */
 	trackContent?: string;
 
-	/** Worker JS URL. Defaults to the bundled public/subtitles-octopus-worker.js. */
+	/** Worker JS URL. Defaults to the bundled public/nomercy-libass-worker.js. */
 	workerUrl?: string;
 	/** Legacy worker URL for browsers without WASM streaming. */
 	legacyWorkerUrl?: string;
