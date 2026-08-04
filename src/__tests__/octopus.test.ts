@@ -25,6 +25,9 @@ class FakeWorker {
 	private listeners: ((event: MessageEvent) => void)[] = [];
 
 	constructor(public url: string) {
+		// Recorded so a test can answer as the worker would: the class is what
+		// the code under test constructs, so there is no instance to spy on.
+		// eslint-disable-next-line ts/no-this-alias
 		lastWorker = this;
 	}
 

@@ -174,9 +174,6 @@ export class NMSubtitleOctopus {
 
 		// Patch 5: resolve URLs through basePath + isAbsolute classifier.
 		const resolvedSub = url ? resolveUrl(this.options.basePath, url) : '';
-		const fontUrls = (this.options.fonts ?? []).map(f =>
-			resolveUrl(this.options.basePath, f),
-		);
 
 		// Inline content is the preferred path: the plugin already fetched it
 		// through the kit's authenticated pipeline.
