@@ -14,11 +14,11 @@ This package is **not** a fork of upstream — it's a thin consumer-side wrapper
 
 ## Binaries
 
-`public/subtitles-octopus-worker.{js,wasm}` and `public/default.ttf` are vendored from upstream `libass-wasm@4.1.0` pending a first NoMercy build out of the sister fork (`@nomercy-entertainment/libass-wasm`). License chain reproduced in `COPYRIGHT`.
+`dist/nomercy-libass-worker.{js,wasm,data}` are vendored from upstream `libass-wasm@4.1.0`, pending a first NoMercy build. The sister fork `packages/nomercy-libass-wasm` builds these binaries in CI but is not yet consumed here — see `audit/ALIGNMENT.md`. License chain reproduced in `COPYRIGHT`.
 
 ## Worker files — copy to public
 
-The libass WASM worker files ship inside this package's `dist/` directory. Your build tool must copy them into the public/static directory so the browser can load them:
+The libass WASM worker files ship inside this package's `dist/` directory (`nomercy-libass-worker.js`, `.wasm`, `.data`). Your build tool must copy them into the public/static directory so the browser can load them:
 
 ```ts
 // vite.config.ts
@@ -29,7 +29,7 @@ export default {
 		viteStaticCopy({
 			targets: [
 				{
-					src: 'node_modules/@nomercy-entertainment/nomercy-subtitle-octopus/dist/subtitles-octopus-worker*.{js,wasm,data}',
+					src: 'node_modules/@nomercy-entertainment/nomercy-subtitle-octopus/dist/nomercy-libass-worker.{js,wasm,data}',
 					dest: 'static',
 				},
 			],
@@ -38,12 +38,11 @@ export default {
 };
 ```
 
-Then pass the copied paths when registering the plugin:
+Then pass the copied path when registering the plugin:
 
 ```ts
 player.addPlugin(OctopusPlugin, {
-	workerUrl: '/static/subtitles-octopus-worker.js',
-	legacyWorkerUrl: '/static/subtitles-octopus-worker-legacy.js',
+	workerUrl: '/static/nomercy-libass-worker.js',
 });
 ```
 
