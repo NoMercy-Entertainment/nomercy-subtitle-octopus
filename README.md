@@ -2,7 +2,7 @@
 
 NoMercy-owned TypeScript wrapper around the libass-wasm (SubtitleOctopus) WASM renderer.
 
-This package is **not** a fork of upstream — it's a thin consumer-side wrapper that adds the patches NoMercy needs without modifying the WASM worker. The actual fork of [libass/JavascriptSubtitlesOctopus](https://github.com/libass/JavascriptSubtitlesOctopus) lives at [`@nomercy-entertainment/libass-wasm`](../nomercy-libass-wasm/) — that package owns the C++ source, Emscripten build pipeline, and the binaries.
+This package is **not** a fork of upstream — it's a thin consumer-side wrapper that adds the patches NoMercy needs without modifying the WASM worker. The actual fork of [libass/JavascriptSubtitlesOctopus](https://github.com/libass/JavascriptSubtitlesOctopus) lives at [`@nomercy-entertainment/libass-wasm`](../JavascriptSubtitlesOctopus/) — that package owns the C++ source, Emscripten build pipeline, and the binaries.
 
 ## Patches owned here (main-thread, TypeScript)
 
@@ -14,7 +14,7 @@ This package is **not** a fork of upstream — it's a thin consumer-side wrapper
 
 ## Binaries
 
-`dist/nomercy-libass-worker.{js,wasm,data}` are vendored from upstream `libass-wasm@4.1.0`, pending a first NoMercy build. The sister fork `packages/nomercy-libass-wasm` builds these binaries in CI but is not yet consumed here — see `audit/ALIGNMENT.md`. License chain reproduced in `COPYRIGHT`.
+`dist/nomercy-libass-worker.{js,wasm,data}` are vendored from upstream `libass-wasm@4.1.0`, pending a first NoMercy build. The sister fork `packages/subtitles/JavascriptSubtitlesOctopus` builds these binaries in CI but is not yet consumed here — see `audit/ALIGNMENT.md`. License chain reproduced in `COPYRIGHT`.
 
 ## Worker files — copy to public
 

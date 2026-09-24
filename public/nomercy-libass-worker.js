@@ -12,7 +12,7 @@ async function NoMercyLibass(moduleArg={}){var Module=moduleArg;var ENVIRONMENT_
 //
 // The linked module exports libass's C entry points and nothing else, so a
 // browser loading it has a wasm binary and no way to say "draw this cue". This
-// is what the wrapper in packages/nomercy-subtitle-octopus talks to, and it is
+// is what the wrapper in packages/subtitles/nomercy-subtitle-octopus talks to, and it is
 // deliberately the same shape as the events its WorkerBridge already handles:
 // nm:ready, nm:error, nm:fonts-loaded.
 //
