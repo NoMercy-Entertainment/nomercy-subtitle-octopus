@@ -189,12 +189,21 @@ export class NMSubtitleOctopus {
 
 		// Fetched here rather than in the worker, for the same reason the fonts
 		// are: the request has to carry the viewer's token.
-		const response = await fetch(resolvedSub);
-		if (!response.ok) {
-			this.emitter.emit('error', new Error(`the subtitle at ${resolvedSub} returned ${response.status}`));
+		let response: Response;
+		let subtitle: string;
+		try {
+			response = await fetch(resolvedSub);
+			if (!response.ok) {
+				this.emitter.emit('error', new Error(`the subtitle at ${resolvedSub} returned ${response.status}`));
+				return;
+			}
+			subtitle = await response.text();
+		}
+		catch (error) {
+			this.emitter.emit('error', error instanceof Error ? error : new Error(String(error)));
 			return;
 		}
-		void this.mount(await response.text(), id);
+		void this.mount(subtitle, id);
 	}
 
 	// Fonts are bytes by the time they reach here.
