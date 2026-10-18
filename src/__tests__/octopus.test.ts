@@ -93,6 +93,24 @@ async function settle(): Promise<void> {
 }
 
 describe('nMSubtitleOctopus — the worker protocol', () => {
+	it.each([
+		['fetch', () => Promise.reject(new Error('network unavailable'))],
+		['response body', () => Promise.resolve({ ok: true, text: () => Promise.reject(new Error('body interrupted')) })],
+	])('emits an error when the subtitle %s rejects', async (_stage, request) => {
+		vi.stubGlobal('fetch', vi.fn(request));
+		const errors: Error[] = [];
+		const player = new NMSubtitleOctopus({ video: makeVideoElement() });
+		player.on('error', error => errors.push(error));
+
+		player.trackUrl('missing.ass');
+		await settle();
+
+		expect(errors).toHaveLength(1);
+		expect(errors[0]).toBeInstanceOf(Error);
+		expect(errors[0].message).toMatch(/network unavailable|body interrupted/);
+		player.dispose();
+	});
+
 	it('loads fonts and the track only after asynchronous worker initialization', async () => {
 		vi.stubGlobal('fetch', vi.fn(async () => ({
 			ok: true,
