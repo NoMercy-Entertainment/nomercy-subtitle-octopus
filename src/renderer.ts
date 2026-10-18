@@ -21,6 +21,7 @@ export class LibassRenderer {
 	private frame: number = 0;
 	private ready = false;
 	private disposed = false;
+	private pendingTrack: { content: string; fonts: Record<string, ArrayBuffer> } | null = null;
 
 	private readonly video: HTMLVideoElement;
 	private readonly onReady: () => void;
@@ -47,6 +48,7 @@ export class LibassRenderer {
 	async start(content: string, fonts: Record<string, ArrayBuffer>): Promise<void> {
 		const worker = new Worker(this.workerUrl, { type: 'classic' });
 		this.worker = worker;
+		this.pendingTrack = { content, fonts };
 		worker.addEventListener('message', this.onMessage);
 
 		// Sized from the video's own frame, not the element's box: libass lays a
@@ -69,12 +71,6 @@ export class LibassRenderer {
 			},
 			[surface],
 		);
-
-		for (const [name, bytes] of Object.entries(fonts))
-			worker.postMessage({ type: 'nm:font', name, bytes }, [bytes]);
-
-		worker.postMessage({ type: 'nm:fonts-done' });
-		worker.postMessage({ type: 'nm:track', content });
 	}
 
 	/** Resize the render surface after a layout change. */
@@ -86,6 +82,7 @@ export class LibassRenderer {
 
 	dispose(): void {
 		this.disposed = true;
+		this.pendingTrack = null;
 		if (this.frame)
 			cancelAnimationFrame(this.frame);
 		this.frame = 0;
@@ -107,7 +104,17 @@ export class LibassRenderer {
 	private readonly onMessage = (event: MessageEvent): void => {
 		const msg = event.data as { type: string; message?: string };
 		if (msg.type === 'nm:ready') {
+			if (this.disposed || this.ready)
+				return;
 			this.ready = true;
+			const pending = this.pendingTrack;
+			this.pendingTrack = null;
+			if (pending && this.worker) {
+				for (const [name, bytes] of Object.entries(pending.fonts))
+					this.worker.postMessage({ type: 'nm:font', name, bytes }, [bytes]);
+				this.worker.postMessage({ type: 'nm:fonts-done' });
+				this.worker.postMessage({ type: 'nm:track', content: pending.content });
+			}
 			this.onReady();
 			this.pump();
 		}

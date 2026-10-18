@@ -23,6 +23,8 @@ let lastWorker: FakeWorker | null = null;
 
 class FakeWorker {
 	private listeners: ((event: MessageEvent) => void)[] = [];
+	private ready = false;
+	loadedTrack: string | null = null;
 
 	constructor(public url: string) {
 		// Recorded so a test can answer as the worker would: the class is what
@@ -33,6 +35,13 @@ class FakeWorker {
 
 	postMessage(message: SentMessage): void {
 		sent.push(message);
+		if ((message.type === 'nm:font' || message.type === 'nm:track') && !this.ready) {
+			for (const listener of this.listeners)
+				listener({ data: { type: 'nm:error', message: 'libass is not ready' } } as MessageEvent);
+		}
+		else if (message.type === 'nm:track') {
+			this.loadedTrack = message.content as string;
+		}
 	}
 
 	addEventListener(_name: string, fn: (event: MessageEvent) => void): void {
@@ -47,6 +56,7 @@ class FakeWorker {
 
 	/** Answer as the real worker does once it holds a library and a renderer. */
 	announceReady(): void {
+		this.ready = true;
 		for (const listener of this.listeners)
 			listener({ data: { type: 'nm:ready' } } as MessageEvent);
 	}
@@ -83,6 +93,38 @@ async function settle(): Promise<void> {
 }
 
 describe('nMSubtitleOctopus — the worker protocol', () => {
+	it('loads fonts and the track only after asynchronous worker initialization', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => ({
+			ok: true,
+			status: 200,
+			arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+		})));
+
+		const errors: Error[] = [];
+		const player = new NMSubtitleOctopus({
+			video: makeVideoElement(),
+			trackContent: ASS,
+			availableFonts: { 'negotiate free': 'https://media.test/negotiate.ttf' },
+		});
+		player.on('error', error => errors.push(error));
+		await settle();
+
+		expect(sent.map(message => message.type)).toEqual(['nm:init']);
+		expect(errors).toEqual([]);
+		expect(lastWorker?.loadedTrack).toBeNull();
+
+		lastWorker?.announceReady();
+		expect(sent.slice(0, 4).map(message => message.type)).toEqual([
+			'nm:init',
+			'nm:font',
+			'nm:fonts-done',
+			'nm:track',
+		]);
+		expect(lastWorker?.loadedTrack).toBe(ASS);
+		expect(errors).toEqual([]);
+		player.dispose();
+	});
+
 	it('sends every font before the track, because libass resolves a face as it draws', async () => {
 		vi.stubGlobal('fetch', vi.fn(async () => ({
 			ok: true,
@@ -96,6 +138,7 @@ describe('nMSubtitleOctopus — the worker protocol', () => {
 			availableFonts: { 'negotiate free': 'https://media.test/negotiate.ttf' },
 		});
 		await settle();
+		lastWorker?.announceReady();
 
 		const order = sent.map(message => message.type);
 		expect(order).toContain('nm:init');
@@ -120,6 +163,7 @@ describe('nMSubtitleOctopus — the worker protocol', () => {
 			availableFonts: { 'negotiate free': 'https://media.test/negotiate.ttf' },
 		});
 		await settle();
+		lastWorker?.announceReady();
 
 		const font = sent.find(message => message.type === 'nm:font');
 		expect(font?.name).toBe('negotiate free');
@@ -142,6 +186,7 @@ describe('nMSubtitleOctopus — the worker protocol', () => {
 			availableFonts: { 'negotiate free': 'https://media.test/missing.ttf' },
 		});
 		await settle();
+		lastWorker?.announceReady();
 
 		expect(sent.find(message => message.type === 'nm:font')).toBeUndefined();
 		expect(sent.find(message => message.type === 'nm:track')).toBeDefined();
