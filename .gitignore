@@ -3,3 +3,10 @@ dist/
 coverage/
 *.log
 .DS_Store
+.yarn/*
+!.yarn/releases
+!.yarn/patches
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+.pnp.*
