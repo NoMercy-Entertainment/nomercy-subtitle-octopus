@@ -1,11 +1,5 @@
-/**
- * LibassRenderer's clock: which time reaches the worker, and when.
- *
- * The video element is a fake with a controllable requestVideoFrameCallback,
- * because the claim under test is "the presented frame's own timestamp wins
- * over the polled currentTime", and a real element cannot be told which frame
- * it presented.
- */
+// LibassRenderer's clock: which time reaches the worker, and when.
+// The video is a fake because a real element cannot be told which frame it presented.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatProbeReport, summarize } from '../probe';

@@ -9,17 +9,9 @@ const MAX_FRAME_STEP = 0.25;
 const STEP_WINDOW = 5;
 
 /**
- * Drives our own libass worker.
- *
- * This is what replaced the vendored SubtitlesOctopus. That build was a
- * JavaScript port of libass whose version nobody here chose and whose fixes
- * arrived when somebody else made them — the last surface in the trio drawing
- * ASS through code we did not build. The worker underneath is now the same
- * libass, from the same pinned sources, as the desktop DLL and the phone's .so.
- *
- * The canvas is transferred to the worker as an OffscreenCanvas so compositing
- * a frame — a per-cue loop over bitmaps — never runs between a video frame and
- * its deadline.
+ * Drives our own libass worker (same pinned libass as the desktop DLL and the phone).
+ * The canvas moves to the worker as an OffscreenCanvas so compositing never runs
+ * between a video frame and its deadline.
  */
 export class LibassRenderer {
 	readonly canvas: HTMLCanvasElement;
