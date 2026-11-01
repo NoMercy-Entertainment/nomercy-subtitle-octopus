@@ -220,6 +220,23 @@ describe('the probe', () => {
 	});
 });
 
+describe('the caption canvas on a player that is not the video\'s own size', () => {
+	it('fits the canvas to its wrapper, keeping the video\'s aspect', async () => {
+		const renderer = await startRenderer(makeVideo());
+
+		expect(renderer.canvas.style.width).toBe('100%');
+		expect(renderer.canvas.style.height).toBe('100%');
+		expect(renderer.canvas.style.objectFit).toBe('contain');
+	});
+
+	it('keeps the drawing buffer at the video frame size', async () => {
+		const renderer = await startRenderer(makeVideo());
+
+		expect(renderer.canvas.width).toBe(1920);
+		expect(renderer.canvas.height).toBe(1080);
+	});
+});
+
 describe('summarize', () => {
 	it('gives count, p50, p95 and max of a sample', () => {
 		const sample = Array.from({ length: 100 }, (_, i) => i + 1);

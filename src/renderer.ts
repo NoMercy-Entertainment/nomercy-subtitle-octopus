@@ -55,6 +55,12 @@ export class LibassRenderer {
 		this.canvasParent.style.pointerEvents = 'none';
 
 		this.canvas = options.canvas ?? document.createElement('canvas');
+		// The buffer is the video frame's size (see start()); the box follows the
+		// wrapper, which CanvasGeometry keeps on the player. Without this the
+		// canvas shows at its pixel size and only lines up at the video's own size.
+		this.canvas.style.width = '100%';
+		this.canvas.style.height = '100%';
+		this.canvas.style.objectFit = 'contain';
 		this.canvasParent.appendChild(this.canvas);
 	}
 
