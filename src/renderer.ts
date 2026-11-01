@@ -5,6 +5,8 @@ import { summarize } from './probe';
 // A paused or seeking video presents no new frame, so these re-send the time.
 const CLOCK_EVENTS = ['seeked', 'ratechange', 'play', 'pause'] as const;
 const PROBE_SAMPLE_CAP = 20_000;
+const MAX_FRAME_STEP = 0.25;
+const STEP_WINDOW = 5;
 
 /**
  * Drives our own libass worker.
@@ -194,9 +196,25 @@ export class LibassRenderer {
 	}
 
 	private readonly onClockEvent = (): void => {
+		this.lastMediaTime = -1;
+		this.steps.length = 0;
 		if (!this.disposed && this.ready)
 			this.sendTime(this.video.currentTime);
 	};
+
+	// The worker draws async and the canvas commits a frame later, so ask one
+	// frame interval ahead to land with frame N. No lead after a seek, pause
+	// or stall.
+	private lastMediaTime = -1;
+	private readonly steps: number[] = [];
+
+	// Median of recent steps, so one odd frame cannot jitter the lead.
+	private lead(): number {
+		if (this.steps.length === 0)
+			return 0;
+		const sorted = [...this.steps].sort((a, b) => a - b);
+		return sorted[Math.floor(sorted.length / 2)];
+	}
 
 	private readonly onVideoFrame = (_now: number, metadata: VideoFrameCallbackMetadata): void => {
 		if (this.disposed)
@@ -204,7 +222,17 @@ export class LibassRenderer {
 
 		if (this.probing && this.skewSamples.length < PROBE_SAMPLE_CAP)
 			this.skewSamples.push((metadata.mediaTime - this.video.currentTime) * 1000);
-		this.sendTime(metadata.mediaTime);
+		const step = this.lastMediaTime < 0 ? 0 : metadata.mediaTime - this.lastMediaTime;
+		this.lastMediaTime = metadata.mediaTime;
+		if (step > 0 && step <= MAX_FRAME_STEP) {
+			this.steps.push(step);
+			if (this.steps.length > STEP_WINDOW)
+				this.steps.shift();
+		}
+		else {
+			this.steps.length = 0;
+		}
+		this.sendTime(metadata.mediaTime + this.lead());
 		this.videoFrame = this.video.requestVideoFrameCallback(this.onVideoFrame);
 	};
 

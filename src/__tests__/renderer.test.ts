@@ -131,10 +131,59 @@ describe('the renderer clock with requestVideoFrameCallback', () => {
 		await startRenderer(video);
 
 		video.present(1);
-		video.present(1.041);
+		video.present(1.042);
 
-		expect(times()).toEqual(expect.arrayContaining([1000, 1041]));
 		expect(video.frameCallbacks.size).toBe(1);
+	});
+
+	it('renders one frame interval ahead while playing, to land with the frame it is drawn for', async () => {
+		const video = makeVideo();
+		await startRenderer(video);
+		sent.length = 0;
+
+		video.present(10);
+		video.present(10.042);
+		video.present(10.084);
+
+		expect(times()).toEqual([10000, 10084, 10126]);
+	});
+
+	it('adds no lead on the first frame after a seek, a pause or a play', async () => {
+		const video = makeVideo();
+		await startRenderer(video);
+		video.present(10);
+		video.present(10.042);
+
+		video.dispatchEvent(new Event('seeked'));
+		sent.length = 0;
+		video.present(50);
+		video.present(50.042);
+
+		expect(times()).toEqual([50000, 50084]);
+	});
+
+	it('keeps the lead steady when one frame arrives off the cadence', async () => {
+		const video = makeVideo();
+		await startRenderer(video);
+
+		for (const t of [10, 10.042, 10.084, 10.126, 10.168, 10.21])
+			video.present(t);
+		sent.length = 0;
+		video.present(10.262);
+		video.present(10.294);
+
+		expect(times()).toEqual([10304, 10336]);
+	});
+
+	it('adds no lead across a stall longer than a quarter second', async () => {
+		const video = makeVideo();
+		await startRenderer(video);
+		sent.length = 0;
+
+		video.present(10);
+		video.present(12);
+
+		expect(times()).toEqual([10000, 12000]);
 	});
 
 	it.each(['seeked', 'ratechange', 'play', 'pause'])('sends the current time on %s so a paused video shows the right frame', async (name) => {
