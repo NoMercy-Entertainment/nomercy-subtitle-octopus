@@ -1,6 +1,3 @@
-/** Render pipeline mode forwarded to the libass worker. */
-export type RenderMode = 'wasm-blend' | 'js-blend' | 'lossy';
-
 export interface OctopusOptions {
 	/** Target video element — required. */
 	video: HTMLVideoElement;
@@ -28,27 +25,13 @@ export interface OctopusOptions {
 	/** Fallback font URL when the subtitle requests an unavailable face. */
 	fallbackFont?: string;
 
-	renderMode?: RenderMode;
-	prescaleFactor?: number;
-	prescaleHeightLimit?: number;
-	maxRenderHeight?: number;
-	targetFps?: number;
 	libassMemoryLimit?: number;
 	libassGlyphLimit?: number;
-
-	/**
-	 * Number of frames the renderer pre-computes ahead of `currentTime`. Forwarded
-	 * to the worker; stock libass-wasm ignores it, NoMercy fork builds use it for
-	 * the look-ahead render cache. Typical value: `10`.
-	 */
-	renderAhead?: number;
-
-	/** Convenience flag: shorthand for `renderMode: 'lossy'`. */
-	lossyRender?: boolean;
 
 	timeOffset?: number;
 	lazyFileLoading?: boolean;
 	dropAllAnimations?: boolean;
+	/** Turns on the render probe; read it with `rendererInstance()?.probeReport()`. */
 	debug?: boolean;
 
 	/** Prepended to relative subtitle and font URLs before passing to the worker. */

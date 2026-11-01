@@ -1,4 +1,10 @@
+import type { ProbeReport } from './probe';
 import type { OctopusOptions } from './types';
+import { summarize } from './probe';
+
+// A paused or seeking video presents no new frame, so these re-send the time.
+const CLOCK_EVENTS = ['seeked', 'ratechange', 'play', 'pause'] as const;
+const PROBE_SAMPLE_CAP = 20_000;
 
 /**
  * Drives our own libass worker.
@@ -19,7 +25,13 @@ export class LibassRenderer {
 
 	private worker: Worker | null = null;
 	private frame: number = 0;
+	private videoFrame: number = 0;
 	private ready = false;
+	private readonly probing: boolean;
+	private readonly renderSamples: number[] = [];
+	private readonly skewSamples: number[] = [];
+	private dropped = 0;
+	private drawn = 0;
 	private disposed = false;
 	private pendingTrack: { content: string; fonts: Record<string, ArrayBuffer> } | null = null;
 
@@ -33,6 +45,7 @@ export class LibassRenderer {
 		callbacks: { onReady: () => void; onError: (error: Error) => void },
 	) {
 		this.video = options.video;
+		this.probing = options.debug === true;
 		this.onReady = callbacks.onReady;
 		this.onError = callbacks.onError;
 
@@ -68,6 +81,7 @@ export class LibassRenderer {
 				height,
 				glyphCacheMax: this.options.libassGlyphLimit ?? 0,
 				bitmapCacheMegabytes: this.options.libassMemoryLimit ?? 0,
+				probe: this.probing,
 			},
 			[surface],
 		);
@@ -80,12 +94,29 @@ export class LibassRenderer {
 		this.worker?.postMessage({ type: 'nm:resize', width, height });
 	}
 
+	/** Percentiles of what the opt-in probe (`debug: true`) measured; null when it is off. */
+	probeReport(): ProbeReport | null {
+		if (!this.probing)
+			return null;
+		return {
+			renderMs: summarize(this.renderSamples),
+			skewMs: summarize(this.skewSamples),
+			dropped: this.dropped,
+			drawn: this.drawn,
+		};
+	}
+
 	dispose(): void {
 		this.disposed = true;
 		this.pendingTrack = null;
 		if (this.frame)
 			cancelAnimationFrame(this.frame);
 		this.frame = 0;
+		if (this.videoFrame)
+			this.video.cancelVideoFrameCallback?.(this.videoFrame);
+		this.videoFrame = 0;
+		for (const name of CLOCK_EVENTS)
+			this.video.removeEventListener(name, this.onClockEvent);
 
 		const worker = this.worker;
 		this.worker = null;
@@ -102,7 +133,7 @@ export class LibassRenderer {
 	}
 
 	private readonly onMessage = (event: MessageEvent): void => {
-		const msg = event.data as { type: string; message?: string };
+		const msg = event.data as { type: string; message?: string; renderMs?: number; drew?: boolean; dropped?: number };
 		if (msg.type === 'nm:ready') {
 			if (this.disposed || this.ready)
 				return;
@@ -116,30 +147,66 @@ export class LibassRenderer {
 				this.worker.postMessage({ type: 'nm:track', content: pending.content });
 			}
 			this.onReady();
-			this.pump();
+			this.startClock();
+		}
+		else if (msg.type === 'nm:probe' && this.probing) {
+			if (this.renderSamples.length < PROBE_SAMPLE_CAP)
+				this.renderSamples.push(msg.renderMs ?? 0);
+			this.dropped = msg.dropped ?? this.dropped;
+			if (msg.drew)
+				this.drawn++;
 		}
 		else if (msg.type === 'nm:error') {
 			this.onError(new Error(msg.message ?? 'the libass worker failed'));
 		}
 	};
 
-	// One message per animation frame, and only when the time actually moved.
-	//
-	// A paused player would otherwise send sixty identical render requests a
-	// second, and the worker would composite the same cue sixty times to produce
-	// the same pixels.
+	// Only when the time actually moved: a paused player would otherwise send
+	// sixty identical render requests a second for the same pixels.
 	private lastSent = -1;
+
+	private sendTime(seconds: number): void {
+		const timeMs = Math.round((seconds + (this.options.timeOffset ?? 0)) * 1000);
+		if (timeMs === this.lastSent)
+			return;
+		this.lastSent = timeMs;
+		this.worker?.postMessage({ type: 'nm:time', timeMs });
+	}
+
+	// The presented frame's own timestamp when the browser reports it. Polling
+	// currentTime reads the audio clock, which runs ahead of the picture, so a
+	// moving sign lands a frame or two off the video it is drawn on.
+	private startClock(): void {
+		for (const name of CLOCK_EVENTS)
+			this.video.addEventListener(name, this.onClockEvent);
+		this.sendTime(this.video.currentTime);
+
+		if (typeof this.video.requestVideoFrameCallback === 'function')
+			this.videoFrame = this.video.requestVideoFrameCallback(this.onVideoFrame);
+		else
+			this.pump();
+	}
+
+	private readonly onClockEvent = (): void => {
+		if (!this.disposed && this.ready)
+			this.sendTime(this.video.currentTime);
+	};
+
+	private readonly onVideoFrame = (_now: number, metadata: VideoFrameCallbackMetadata): void => {
+		if (this.disposed)
+			return;
+
+		if (this.probing && this.skewSamples.length < PROBE_SAMPLE_CAP)
+			this.skewSamples.push((metadata.mediaTime - this.video.currentTime) * 1000);
+		this.sendTime(metadata.mediaTime);
+		this.videoFrame = this.video.requestVideoFrameCallback(this.onVideoFrame);
+	};
 
 	private readonly pump = (): void => {
 		if (this.disposed || !this.ready)
 			return;
 
-		const timeMs = Math.round((this.video.currentTime + (this.options.timeOffset ?? 0)) * 1000);
-		if (timeMs !== this.lastSent) {
-			this.lastSent = timeMs;
-			this.worker?.postMessage({ type: 'nm:time', timeMs });
-		}
-
+		this.sendTime(this.video.currentTime);
 		this.frame = requestAnimationFrame(this.pump);
 	};
 }
