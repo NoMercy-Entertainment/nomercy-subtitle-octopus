@@ -1,5 +1,11 @@
 # Changelog — @nomercy-entertainment/nomercy-subtitle-octopus
 
+## [0.2.1] — 2026-11-01
+
+### Fixed
+
+- A plain `npm install` resolves this package again. `publishConfig.tag` pinned every release to the `beta` dist-tag, so 0.2.0 sat on `beta` and `latest` stayed on 0.1.0. The content of 0.2.1 equals 0.2.0.
+
 ## [0.2.0] — 2026-11-01
 
 ### Added
