@@ -8,11 +8,9 @@ const PROBE_SAMPLE_CAP = 20_000;
 const MAX_FRAME_STEP = 0.25;
 const STEP_WINDOW = 5;
 
-/**
- * Drives our own libass worker (same pinned libass as the desktop DLL and the phone).
- * The canvas moves to the worker as an OffscreenCanvas so compositing never runs
- * between a video frame and its deadline.
- */
+// Drives our own libass worker (the same pinned libass as desktop and phone). The canvas
+// moves to the worker as an OffscreenCanvas so compositing never runs between a frame
+// and its deadline.
 export class LibassRenderer {
 	readonly canvas: HTMLCanvasElement;
 	readonly canvasParent: HTMLDivElement;
