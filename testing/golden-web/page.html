@@ -28,7 +28,7 @@
 	// Light mode only snapshots the overlay in the frame callback; pixels are read afterwards.
 	function grab(scenario, frame) {
 		const overlay = document.querySelector('.nomercy-libass canvas');
-		const rec = { scenario, now: frame.now, mt: frame.mt, sends: window.__nmTimes.length, crop: null, rgb: null };
+		const rec = { scenario, now: frame.now, mt: frame.mt, edt: frame.edt, cbAt: frame.cbAt, sends: window.__nmTimes.length, crop: null, rgb: null };
 		if (window.__light)
 			rec.bmp = createImageBitmap(overlay);
 		else
@@ -77,7 +77,7 @@
 		await video.play();
 		await new Promise((res) => {
 			const cb = (now, md) => {
-				grab(scenario, { now, mt: md.mediaTime });
+				grab(scenario, { now, mt: md.mediaTime, edt: md.expectedDisplayTime, cbAt: performance.now() });
 				if (md.mediaTime < to)
 					video.requestVideoFrameCallback(cb);
 				else
@@ -162,7 +162,7 @@
 			video.pause();
 		},
 		meta() {
-			return JSON.stringify({ frames: window.__cap.map(r => ({ scenario: r.scenario, now: r.now, mt: r.mt, sends: r.sends, crop: r.crop })), sent: window.__nmTimes });
+			return JSON.stringify({ frames: window.__cap.map(r => ({ scenario: r.scenario, now: r.now, mt: r.mt, edt: r.edt, cbAt: r.cbAt, sends: r.sends, crop: r.crop })), sent: window.__nmTimes, origin: performance.timeOrigin, inst: window.__nmInst, longTasks: window.__longTasks });
 		},
 		chunk(i, n) {
 			const out = [];

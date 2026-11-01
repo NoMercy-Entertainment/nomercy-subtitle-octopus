@@ -48,6 +48,42 @@ for i, f in enumerate(meta['frames']):
     if send:
         out['leads'].append(send[1] - f['mt'] * 1000)
 
+CONFIG = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'compare-config.json')))
+CANVAS = json.load(open(os.path.join(fixture_dir, 'manifest.json')))['canvas']
+_full = {}
+
+
+def full_frame(directory, fr):
+    key = (directory, fr['file'])
+    if key not in _full:
+        a = np.zeros((CANVAS[1], CANVAS[0], 3), np.int16)
+        if fr['file']:
+            x, y, w, h = fr['crop']
+            a[y:y + h, x:x + w] = np.array(Image.open(os.path.join(directory, fr['file'])).convert('RGB'))
+        _full[key] = a
+    return _full[key]
+
+
+def check_tolerance(s):
+    """Primary: the nearest reference frame is the exact one. Secondary: large pixel differences stay under the fixture's threshold."""
+    cfg = CONFIG['fixtures'][os.path.basename(os.path.normpath(fixture_dir))]
+    exact = total = 0
+    worst = 0
+    for f in s['frames']:
+        j = ref_index(f['pts_ms'])
+        if j is None:
+            continue
+        a = full_frame(s['dir'], f)
+        near = {k: int((np.abs(a - full_frame(fixture_dir, ref[k])).max(axis=2) > 0).sum())
+                for k in range(max(0, j - CONFIG['search']), min(len(ref), j + CONFIG['search'] + 1))}
+        total += 1
+        if min(near, key=lambda k: (near[k], abs(k - j))) == j:
+            exact += 1
+            worst = max(worst, int((np.abs(a - full_frame(fixture_dir, ref[j])).max(axis=2) > cfg['channelOver']).sum()))
+    ok = exact == total and worst <= cfg['maxPixels']
+    print('tolerance: exact-frame=%d/%d large-diff-px max=%d (over %d per channel, limit %d) %s' % (exact, total, worst, cfg['channelOver'], cfg['maxPixels'], 'PASS' if ok else 'FAIL'))
+
+
 for name, s in scenarios.items():
     json.dump({'canvas': [1280, 720], 'frames': s['frames']}, open(os.path.join(s['dir'], 'manifest.json'), 'w'))
     print('== scenario %s: %d frames' % (name, len(s['frames'])))
@@ -58,6 +94,8 @@ for name, s in scenarios.items():
     print('signed offset_ms per frame (positive = overlay shows a later frame than the video):', [int(r[4]) for r in rows if len(r) >= 5])
     inside = [(f, ref_index(f['pts_ms'])) for f in s['frames']]
     inside = [(f, j) for f, j in inside if j is not None]
+    if name == 'play':
+        check_tolerance(s)
     if name == 'play' and inside:
         rep = moved = late = 0
         gaps = []

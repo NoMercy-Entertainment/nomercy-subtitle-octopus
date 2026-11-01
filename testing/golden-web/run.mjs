@@ -83,9 +83,18 @@ const evaluate = async (expression) => {
 
 try {
 	await send('Page.enable');
+	// nm:inst messages exist only in the instrumented worker build; a plain build never posts them.
 	await send('Page.addScriptToEvaluateOnNewDocument', { source: `window.__nmTimes = [];
+		window.__nmInst = [];
+		window.__longTasks = [];
+		new PerformanceObserver(l => l.getEntries().forEach(e => window.__longTasks.push([performance.timeOrigin + e.startTime, e.duration]))).observe({ type: 'longtask' });
 		const orig = Worker.prototype.postMessage;
-		Worker.prototype.postMessage = function (m, t) { if (m && m.type === 'nm:time') window.__nmTimes.push([performance.now(), m.timeMs]); return orig.call(this, m, t); };` });
+		const seen = new WeakSet();
+		Worker.prototype.postMessage = function (m, t) {
+			if (!seen.has(this)) { seen.add(this); this.addEventListener('message', ev => { if (ev.data && ev.data.type === 'nm:inst') window.__nmInst.push({ ...ev.data, got: performance.timeOrigin + performance.now() }); }); }
+			if (m && m.type === 'nm:time') window.__nmTimes.push([performance.now(), m.timeMs, performance.timeOrigin + performance.now()]);
+			return orig.call(this, m, t);
+		};` });
 	await send('Page.navigate', { url: 'http://127.0.0.1:9470/page.html' });
 	for (let i = 0; i < 60 && (await evaluate('window.goldenReady === true')) !== true; i++) await new Promise(r => setTimeout(r, 500));
 	const fonts = fs.readdirSync(fontsDir).map(f => `/fonts/${f}`);

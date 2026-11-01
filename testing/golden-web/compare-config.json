@@ -1,0 +1,9 @@
+{
+	"search": 3,
+	"fixtures": {
+		"sign-pos-move": { "channelOver": 64, "maxPixels": 3300 },
+		"paper-frz-clip": { "channelOver": 128, "maxPixels": 100 },
+		"scroll-messages": { "channelOver": 128, "maxPixels": 2500 },
+		"transform": { "channelOver": 128, "maxPixels": 1000 }
+	}
+}
