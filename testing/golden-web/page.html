@@ -25,8 +25,18 @@
 		return new Promise(res => video.requestVideoFrameCallback((now, md) => res({ now, mt: md.mediaTime })));
 	}
 
+	// Light mode only snapshots the overlay in the frame callback; pixels are read afterwards.
 	function grab(scenario, frame) {
 		const overlay = document.querySelector('.nomercy-libass canvas');
+		const rec = { scenario, now: frame.now, mt: frame.mt, sends: window.__nmTimes.length, crop: null, rgb: null };
+		if (window.__light)
+			rec.bmp = createImageBitmap(overlay);
+		else
+			extract(rec, overlay);
+		window.__cap.push(rec);
+	}
+
+	function extract(rec, overlay) {
 		cx.fillStyle = '#000';
 		cx.fillRect(0, 0, W, H);
 		cx.drawImage(overlay, 0, 0, W, H);
@@ -43,7 +53,6 @@
 				}
 			}
 		}
-		const rec = { scenario, now: frame.now, mt: frame.mt, sends: window.__nmTimes.length, crop: null, rgb: null };
 		if (x1 >= 0) {
 			const w = x1 - x0 + 1;
 			const h = y1 - y0 + 1;
@@ -58,7 +67,6 @@
 			rec.crop = [x0, y0, w, h];
 			rec.rgb = out;
 		}
-		window.__cap.push(rec);
 	}
 
 	// Captures every presented frame between two media times while playing.
@@ -81,7 +89,17 @@
 	}
 
 	window.golden = {
-		async start(fixtureFonts) {
+		async finalize() {
+			for (const rec of window.__cap) {
+				if (!rec.bmp) continue;
+				const bmp = await rec.bmp;
+				extract(rec, bmp);
+				bmp.close();
+				delete rec.bmp;
+			}
+		},
+		async start(fixtureFonts, light) {
+			window.__light = Boolean(light);
 			window.__cap = [];
 			const o = new NMSubtitleOctopus({
 				video,

@@ -89,11 +89,12 @@ try {
 	await send('Page.navigate', { url: 'http://127.0.0.1:9470/page.html' });
 	for (let i = 0; i < 60 && (await evaluate('window.goldenReady === true')) !== true; i++) await new Promise(r => setTimeout(r, 500));
 	const fonts = fs.readdirSync(fontsDir).map(f => `/fonts/${f}`);
-	console.log('start', await evaluate(`window.golden.start(${JSON.stringify(fonts)})`));
+	console.log('start', await evaluate(`window.golden.start(${JSON.stringify(fonts)}, ${args.light === '1'})`));
 	await evaluate(`window.golden.play(${ws}, ${we})`);
 	const mid = manifest.frames.filter((_, i) => [4, 10, 16].includes(i)).map(f => (f.index + 0.5) * FRAME);
 	await evaluate(`window.golden.seek(${JSON.stringify(mid)})`);
 	await evaluate(`window.golden.pauseResume(${ws}, ${we})`);
+	await evaluate('window.golden.finalize()');
 	const meta = JSON.parse(await evaluate('window.golden.meta()'));
 	fs.writeFileSync(path.join(args.out, 'meta.json'), JSON.stringify(meta));
 	for (let i = 0; i < meta.frames.length; i += 20) {
