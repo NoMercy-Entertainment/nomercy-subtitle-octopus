@@ -92,6 +92,8 @@ beforeEach(() => {
 	listeners = [];
 	animationFrames = [];
 	vi.stubGlobal('Worker', FakeWorker);
+	// Without OffscreenCanvas the renderer keeps the canvas in the worker.
+	vi.stubGlobal('OffscreenCanvas', undefined);
 	Object.defineProperty(HTMLCanvasElement.prototype, 'transferControlToOffscreen', {
 		configurable: true,
 		value: () => ({ transferred: true }),

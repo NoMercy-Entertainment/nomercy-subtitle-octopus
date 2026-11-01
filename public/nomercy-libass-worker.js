@@ -49,6 +49,10 @@ let pendingTime = null;
 let flushScheduled = false;
 let probe = false;
 let dropped = 0;
+// What the last render left: 'same' (canvas unchanged), 'drawn' or 'empty' (nothing to show).
+let outcome = 'same';
+// True when no canvas came from the page: frames leave as ImageBitmaps (nm:frame).
+let bitmapMode = false;
 
 // libass packs a colour as 0xRRGGBBAA and its alpha is INVERSE: 0 is opaque.
 // Reading it the other way around renders every sign as a solid block, which
@@ -137,6 +141,7 @@ function measured(started, drew) {
 }
 
 function render(timeMs) {
+	outcome = 'same';
 	if (!renderer || !track || !context)
 		return;
 
@@ -149,6 +154,7 @@ function render(timeMs) {
 	const first = api._ass_render_frame(renderer, track, BigInt(Math.round(timeMs)), detectChange);
 
 	if (api.HEAP32[detectChange >> 2] === 0 && !mustDraw) {
+		outcome = 'same';
 		measured(started, false);
 		return 0;
 	}
@@ -171,6 +177,7 @@ function render(timeMs) {
 	const dirty = unionOf(drawnBox, boundsOf(images, width, height));
 	mustDraw = false;
 	if (!dirty) {
+		outcome = 'empty';
 		measured(started, false);
 		return 0;
 	}
@@ -184,6 +191,7 @@ function render(timeMs) {
 	// drop 3-6% of its frames while captions were busy (measured in a browser).
 	context.putImageData(frame, 0, 0);
 	drawnBox = boundsOf(images, width, height);
+	outcome = images.length ? 'drawn' : 'empty';
 
 	// Reported, because the canvas belongs to the worker once it is transferred
 	// and nothing on the main thread can read a pixel back. Without this the
@@ -269,7 +277,8 @@ const handlers = {
 
 		detectChange = api._malloc(4);
 		probe = Boolean(msg.probe);
-		canvas = msg.canvas;
+		bitmapMode = !msg.canvas;
+		canvas = msg.canvas || new OffscreenCanvas(msg.width, msg.height);
 		context = canvas.getContext('2d');
 		sizeTo(msg.width, msg.height);
 
@@ -299,6 +308,21 @@ const handlers = {
 		if (!flushScheduled) {
 			flushScheduled = true;
 			setTimeout(flushTime, 0);
+		}
+	},
+
+	// Renders exactly the asked time, in arrival order: the page picks which frame to show.
+	'nm:frame': (msg) => {
+		if (msg.force)
+			mustDraw = true;
+		render(msg.timeMs);
+		const reply = { type: 'nm:frame', timeMs: msg.timeMs, seq: msg.seq, epoch: msg.epoch, result: outcome };
+		if (outcome === 'drawn' && bitmapMode) {
+			reply.bitmap = canvas.transferToImageBitmap();
+			postMessage(reply, [reply.bitmap]);
+		}
+		else {
+			postMessage(reply);
 		}
 	},
 
