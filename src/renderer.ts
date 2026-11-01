@@ -7,22 +7,10 @@ const CLOCK_EVENTS = ['seeked', 'ratechange', 'play', 'pause'] as const;
 const PROBE_SAMPLE_CAP = 20_000;
 const MAX_FRAME_STEP = 0.25;
 const STEP_WINDOW = 5;
-// Frames rendered ahead of the presented one, and how far a predicted time may drift.
-const AHEAD_FRAMES = 2;
-const MATCH_TOLERANCE_MS = 2;
-const MAX_IN_FLIGHT = 6;
 
-interface FrameReply {
-	timeMs: number;
-	seq: number;
-	epoch: number;
-	result: 'drawn' | 'same' | 'empty';
-	bitmap?: ImageBitmap;
-}
-
-// Drives our own libass worker (the same pinned libass as desktop and phone). With frame
-// callbacks the worker renders ahead and sends ImageBitmaps; each is drawn on the main
-// thread inside the callback of its own frame. Otherwise the canvas moves to the worker.
+// Drives our own libass worker (the same pinned libass as desktop and phone). The canvas
+// moves to the worker as an OffscreenCanvas so compositing never runs between a frame
+// and its deadline.
 export class LibassRenderer {
 	readonly canvas: HTMLCanvasElement;
 	readonly canvasParent: HTMLDivElement;
@@ -32,18 +20,6 @@ export class LibassRenderer {
 	private videoFrame: number = 0;
 	private ready = false;
 	private readonly probing: boolean;
-	private readonly bitmapMode: boolean;
-	private context: CanvasRenderingContext2D | null = null;
-	private epoch = 0;
-	private seq = 0;
-	private inFlight = 0;
-	private readonly queue: FrameReply[] = [];
-	// Latest time asked for ahead, the last restart's time and seq, the last presented frame.
-	private requestedTo = -1;
-	private restartMs = -1;
-	private restartSeq = -1;
-	private presentedMs = -1;
-	private presented = -1;
 	private readonly renderSamples: number[] = [];
 	private readonly skewSamples: number[] = [];
 	private dropped = 0;
@@ -62,7 +38,6 @@ export class LibassRenderer {
 	) {
 		this.video = options.video;
 		this.probing = options.debug === true;
-		this.bitmapMode = typeof this.video.requestVideoFrameCallback === 'function' && typeof OffscreenCanvas !== 'undefined';
 		this.onReady = callbacks.onReady;
 		this.onError = callbacks.onError;
 
@@ -95,19 +70,6 @@ export class LibassRenderer {
 		this.canvas.width = width;
 		this.canvas.height = height;
 
-		if (this.bitmapMode) {
-			this.context = this.canvas.getContext('2d');
-			worker.postMessage({
-				type: 'nm:init',
-				width,
-				height,
-				glyphCacheMax: this.options.libassGlyphLimit ?? 0,
-				bitmapCacheMegabytes: this.options.libassMemoryLimit ?? 0,
-				probe: this.probing,
-			});
-			return;
-		}
-
 		const surface = this.canvas.transferControlToOffscreen();
 		worker.postMessage(
 			{
@@ -128,11 +90,6 @@ export class LibassRenderer {
 		const width = this.video.videoWidth || this.video.clientWidth || 1;
 		const height = this.video.videoHeight || this.video.clientHeight || 1;
 		this.worker?.postMessage({ type: 'nm:resize', width, height });
-		if (this.bitmapMode && this.ready) {
-			this.canvas.width = width;
-			this.canvas.height = height;
-			this.restart(this.video.currentTime);
-		}
 	}
 
 	/** Percentiles of what the opt-in probe (`debug: true`) measured; null when it is off. */
@@ -158,8 +115,6 @@ export class LibassRenderer {
 		this.videoFrame = 0;
 		for (const name of CLOCK_EVENTS)
 			this.video.removeEventListener(name, this.onClockEvent);
-		this.video.removeEventListener('seeking', this.onSeeking);
-		this.flush();
 
 		const worker = this.worker;
 		this.worker = null;
@@ -176,11 +131,8 @@ export class LibassRenderer {
 	}
 
 	private readonly onMessage = (event: MessageEvent): void => {
-		const msg = event.data as { type: string; message?: string; renderMs?: number; drew?: boolean; dropped?: number } & Partial<FrameReply>;
-		if (msg.type === 'nm:frame') {
-			this.onFrameReply(msg as FrameReply);
-		}
-		else if (msg.type === 'nm:ready') {
+		const msg = event.data as { type: string; message?: string; renderMs?: number; drew?: boolean; dropped?: number };
+		if (msg.type === 'nm:ready') {
 			if (this.disposed || this.ready)
 				return;
 			this.ready = true;
@@ -198,11 +150,9 @@ export class LibassRenderer {
 		else if (msg.type === 'nm:probe' && this.probing) {
 			if (this.renderSamples.length < PROBE_SAMPLE_CAP)
 				this.renderSamples.push(msg.renderMs ?? 0);
-			if (!this.bitmapMode) {
-				this.dropped = msg.dropped ?? this.dropped;
-				if (msg.drew)
-					this.drawn++;
-			}
+			this.dropped = msg.dropped ?? this.dropped;
+			if (msg.drew)
+				this.drawn++;
 		}
 		else if (msg.type === 'nm:error') {
 			this.onError(new Error(msg.message ?? 'the libass worker failed'));
@@ -227,11 +177,7 @@ export class LibassRenderer {
 	private startClock(): void {
 		for (const name of CLOCK_EVENTS)
 			this.video.addEventListener(name, this.onClockEvent);
-		this.video.addEventListener('seeking', this.onSeeking);
-		if (this.bitmapMode)
-			this.restart(this.video.currentTime);
-		else
-			this.sendTime(this.video.currentTime);
+		this.sendTime(this.video.currentTime);
 
 		if (typeof this.video.requestVideoFrameCallback === 'function')
 			this.videoFrame = this.video.requestVideoFrameCallback(this.onVideoFrame);
@@ -239,134 +185,11 @@ export class LibassRenderer {
 			this.pump();
 	}
 
-	private readonly onClockEvent = (event: Event): void => {
+	private readonly onClockEvent = (): void => {
 		this.lastMediaTime = -1;
-		if (this.disposed || !this.ready)
-			return;
-		if (!this.bitmapMode) {
+		if (!this.disposed && this.ready)
 			this.sendTime(this.video.currentTime);
-			return;
-		}
-		if (event.type === 'ratechange')
-			this.steps.length = 0;
-		// The picture is the last presented frame; currentTime runs ahead of it, or sits between frames.
-		const onScreen = this.presented >= 0 && Math.abs(this.video.currentTime - this.presented) <= MAX_FRAME_STEP;
-		const useFrame = onScreen && (event.type === 'pause' || event.type === 'play' || (event.type === 'seeked' && this.presentedSinceSeek));
-		const at = useFrame ? this.presented : this.video.currentTime;
-		this.restart(at);
-		this.presentedMs = -1;
-		if (!this.video.paused)
-			this.askAhead(at);
 	};
-
-	private presentedSinceSeek = true;
-
-	private readonly onSeeking = (): void => {
-		this.presentedSinceSeek = false;
-	};
-
-	private toMs(seconds: number): number {
-		return Math.round((seconds + (this.options.timeOffset ?? 0)) * 1000);
-	}
-
-	private request(timeMs: number, force: boolean): number {
-		this.worker?.postMessage({ type: 'nm:frame', timeMs, seq: ++this.seq, epoch: this.epoch, force });
-		this.inFlight++;
-		return this.seq;
-	}
-
-	private flush(): void {
-		this.epoch++;
-		for (const entry of this.queue)
-			entry.bitmap?.close();
-		this.queue.length = 0;
-		this.requestedTo = -1;
-	}
-
-	// Drop everything queued and render exactly this time now, with no lead.
-	private restart(seconds: number): void {
-		this.flush();
-		this.restartMs = this.toMs(seconds);
-		this.restartSeq = this.request(this.restartMs, true);
-		this.requestedTo = this.restartMs;
-	}
-
-	private onFrameReply(reply: FrameReply): void {
-		this.inFlight = Math.max(0, this.inFlight - 1);
-		if (this.disposed || reply.epoch !== this.epoch) {
-			reply.bitmap?.close();
-			return;
-		}
-		this.queue.push(reply);
-		// A restart's answer is not tied to a callback: draw it unless a later frame is already on screen.
-		if (reply.seq === this.restartSeq && (this.video.paused || this.presentedMs < 0 || this.presentedMs <= reply.timeMs + MATCH_TOLERANCE_MS))
-			this.showThrough(this.queue.length - 1);
-	}
-
-	// Show the newest content up to and including queue[index], then close and remove them all.
-	private showThrough(index: number): void {
-		let content: FrameReply | null = null;
-		for (let i = 0; i <= index; i++) {
-			if (this.queue[i].result !== 'same')
-				content = this.queue[i];
-		}
-		if (content && this.context) {
-			this.context.clearRect(0, 0, this.canvas.width, this.canvas.height);
-			if (content.bitmap)
-				this.context.drawImage(content.bitmap, 0, 0);
-			this.drawn++;
-		}
-		for (const entry of this.queue.splice(0, index + 1))
-			entry.bitmap?.close();
-	}
-
-	// Show the queued frame for this time inside its callback. False when none matches.
-	private showFrame(timeMs: number): boolean {
-		let match = -1;
-		for (let i = 0; i < this.queue.length; i++) {
-			const delta = this.queue[i].timeMs - timeMs;
-			if (delta > MATCH_TOLERANCE_MS)
-				break;
-			if (delta >= -MATCH_TOLERANCE_MS) {
-				match = i;
-				break;
-			}
-		}
-		if (match < 0)
-			return false;
-		this.dropped += match;
-		this.showThrough(match);
-		return true;
-	}
-
-	private askAhead(mediaTime: number): void {
-		const step = this.lead();
-		if (step <= 0 || this.inFlight >= MAX_IN_FLIGHT)
-			return;
-		for (let k = 1; k <= AHEAD_FRAMES; k++) {
-			const timeMs = this.toMs(mediaTime + k * step);
-			if (timeMs > this.requestedTo + MATCH_TOLERANCE_MS) {
-				this.request(timeMs, false);
-				this.requestedTo = timeMs;
-			}
-		}
-	}
-
-	private onPresentedFrame(metadata: VideoFrameCallbackMetadata, step: number): void {
-		const timeMs = this.toMs(metadata.mediaTime);
-		this.presented = metadata.mediaTime;
-		this.presentedMs = timeMs;
-		this.presentedSinceSeek = true;
-		const jumped = step < 0 || step > MAX_FRAME_STEP;
-		if (this.video.paused || jumped) {
-			if (jumped || Math.abs(timeMs - this.restartMs) > MATCH_TOLERANCE_MS)
-				this.restart(metadata.mediaTime);
-			return;
-		}
-		if (!this.showFrame(timeMs) && Math.abs(timeMs - this.restartMs) > MATCH_TOLERANCE_MS)
-			this.restart(metadata.mediaTime);
-		this.askAhead(metadata.mediaTime);
-	}
 
 	// The worker draws async and the canvas commits a frame later, so ask one
 	// frame interval ahead to land with frame N. No lead while paused.
@@ -394,11 +217,6 @@ export class LibassRenderer {
 			this.steps.push(step);
 			if (this.steps.length > STEP_WINDOW)
 				this.steps.shift();
-		}
-		if (this.bitmapMode) {
-			this.onPresentedFrame(metadata, step);
-			this.videoFrame = this.video.requestVideoFrameCallback(this.onVideoFrame);
-			return;
 		}
 		let asked = metadata.mediaTime + (this.video.paused ? 0 : this.lead());
 		if (!this.video.paused && step > 0 && asked < this.lastAsked)
