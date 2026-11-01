@@ -38,6 +38,7 @@ type FrameCallback = (now: number, metadata: { mediaTime: number }) => void;
 
 class FakeVideo extends EventTarget {
 	currentTime = 0;
+	paused = false;
 	videoWidth = 1920;
 	videoHeight = 1080;
 	clientWidth = 1920;
@@ -148,7 +149,7 @@ describe('the renderer clock with requestVideoFrameCallback', () => {
 		expect(times()).toEqual([10000, 10084, 10126]);
 	});
 
-	it('adds no lead on the first frame after a seek, a pause or a play', async () => {
+	it('keeps the lead on the first frame after a seek or a resume while playing', async () => {
 		const video = makeVideo();
 		await startRenderer(video);
 		video.present(10);
@@ -157,9 +158,21 @@ describe('the renderer clock with requestVideoFrameCallback', () => {
 		video.dispatchEvent(new Event('seeked'));
 		sent.length = 0;
 		video.present(50);
-		video.present(50.042);
 
-		expect(times()).toEqual([50000, 50084]);
+		expect(times()).toEqual([50042]);
+	});
+
+	it('adds no lead on a frame presented while paused', async () => {
+		const video = makeVideo();
+		await startRenderer(video);
+		video.present(10);
+		video.present(10.042);
+
+		video.paused = true;
+		sent.length = 0;
+		video.present(50.5);
+
+		expect(times()).toEqual([50500]);
 	});
 
 	it('keeps the lead steady when one frame arrives off the cadence', async () => {
@@ -173,6 +186,18 @@ describe('the renderer clock with requestVideoFrameCallback', () => {
 		video.present(10.294);
 
 		expect(times()).toEqual([10304, 10336]);
+	});
+
+	it('never asks for an earlier time than the last while playing forward, even when the frame step shrinks', async () => {
+		const video = makeVideo();
+		await startRenderer(video);
+		sent.length = 0;
+
+		for (const t of [10, 10.1, 10.2, 10.3, 10.4, 10.5, 10.52, 10.54, 10.56, 10.58, 10.6])
+			video.present(t);
+
+		const asked = times() as number[];
+		expect(asked.filter((v, i) => i > 0 && v < asked[i - 1])).toEqual([]);
 	});
 
 	it('adds no lead across a stall longer than a quarter second', async () => {

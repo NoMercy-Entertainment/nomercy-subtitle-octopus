@@ -197,15 +197,14 @@ export class LibassRenderer {
 
 	private readonly onClockEvent = (): void => {
 		this.lastMediaTime = -1;
-		this.steps.length = 0;
 		if (!this.disposed && this.ready)
 			this.sendTime(this.video.currentTime);
 	};
 
 	// The worker draws async and the canvas commits a frame later, so ask one
-	// frame interval ahead to land with frame N. No lead after a seek, pause
-	// or stall.
+	// frame interval ahead to land with frame N. No lead while paused.
 	private lastMediaTime = -1;
+	private lastAsked = -1;
 	private readonly steps: number[] = [];
 
 	// Median of recent steps, so one odd frame cannot jitter the lead.
@@ -229,10 +228,11 @@ export class LibassRenderer {
 			if (this.steps.length > STEP_WINDOW)
 				this.steps.shift();
 		}
-		else {
-			this.steps.length = 0;
-		}
-		this.sendTime(metadata.mediaTime + this.lead());
+		let asked = metadata.mediaTime + (this.video.paused ? 0 : this.lead());
+		if (!this.video.paused && step > 0 && asked < this.lastAsked)
+			asked = this.lastAsked;
+		this.lastAsked = asked;
+		this.sendTime(asked);
 		this.videoFrame = this.video.requestVideoFrameCallback(this.onVideoFrame);
 	};
 
