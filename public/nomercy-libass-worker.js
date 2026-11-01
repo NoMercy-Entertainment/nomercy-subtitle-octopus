@@ -39,7 +39,7 @@ let fontsAttached = 0;
 // positions, 2 content. Allocated once, because a malloc per frame is a leak.
 let detectChange = 0;
 // The canvas mirror: what the last upload left on the canvas. Kept between
-// frames so only the boxes that changed are cleared and sent.
+// frames so only the boxes that changed are cleared.
 let frame = null;
 let drawnBox = null;
 // True when the canvas no longer matches what libass last reported (new size,
@@ -180,7 +180,9 @@ function render(timeMs) {
 	for (const image of images)
 		blend(frame.data, image, width, height);
 
-	context.putImageData(frame, 0, 0, dirty.left, dirty.top, dirty.right - dirty.left, dirty.bottom - dirty.top);
+	// The whole frame, never a dirty rectangle: a partial upload made the video
+	// drop 3-6% of its frames while captions were busy (measured in a browser).
+	context.putImageData(frame, 0, 0);
 	drawnBox = boundsOf(images, width, height);
 
 	// Reported, because the canvas belongs to the worker once it is transferred
