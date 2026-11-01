@@ -70,8 +70,18 @@ const ws2 = new WebSocket(tab.webSocketDebuggerUrl);
 await new Promise(r => ws2.addEventListener('open', r));
 let id = 0;
 const pending = new Map();
+// --screen 1: also keep every composited frame the compositor shows (CDP screencast), with its timestamp.
+const screenDir = path.join(args.out, 'screen');
+const screenFrames = [];
 ws2.addEventListener('message', (ev) => {
 	const m = JSON.parse(ev.data);
+	if (m.method === 'Page.screencastFrame') {
+		const name = `s${String(screenFrames.length).padStart(5, '0')}.png`;
+		fs.writeFileSync(path.join(screenDir, name), Buffer.from(m.params.data, 'base64'));
+		screenFrames.push({ file: name, ts: m.params.metadata.timestamp, got: Date.now() / 1000 });
+		ws2.send(JSON.stringify({ id: ++id, method: 'Page.screencastFrameAck', params: { sessionId: m.params.sessionId } }));
+		return;
+	}
 	if (m.id && pending.has(m.id)) { const p = pending.get(m.id); pending.delete(m.id); m.error ? p.reject(new Error(JSON.stringify(m.error))) : p.resolve(m.result); }
 });
 const send = (method, params = {}) => new Promise((resolve, reject) => { const i = ++id; pending.set(i, { resolve, reject }); ws2.send(JSON.stringify({ id: i, method, params })); });
@@ -92,12 +102,17 @@ try {
 		const seen = new WeakSet();
 		Worker.prototype.postMessage = function (m, t) {
 			if (!seen.has(this)) { seen.add(this); this.addEventListener('message', ev => { if (ev.data && ev.data.type === 'nm:inst') window.__nmInst.push({ ...ev.data, got: performance.timeOrigin + performance.now() }); }); }
-			if (m && m.type === 'nm:time') window.__nmTimes.push([performance.now(), m.timeMs, performance.timeOrigin + performance.now()]);
+			if (m && (m.type === 'nm:time' || m.type === 'nm:frame')) window.__nmTimes.push([performance.now(), m.timeMs, performance.timeOrigin + performance.now()]);
 			return orig.call(this, m, t);
 		};` });
 	await send('Page.navigate', { url: 'http://127.0.0.1:9470/page.html' });
 	for (let i = 0; i < 60 && (await evaluate('window.goldenReady === true')) !== true; i++) await new Promise(r => setTimeout(r, 500));
 	const fonts = fs.readdirSync(fontsDir).map(f => `/fonts/${f}`);
+	if (args.screen === '1') {
+		fs.mkdirSync(screenDir, { recursive: true });
+		await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 720, deviceScaleFactor: 1, mobile: false });
+		await send('Page.startScreencast', { format: 'png', everyNthFrame: 1 });
+	}
 	console.log('start', await evaluate(`window.golden.start(${JSON.stringify(fonts)}, ${args.light === '1'})`));
 	await evaluate(`window.golden.play(${ws}, ${we})`);
 	const mid = manifest.frames.filter((_, i) => [4, 10, 16].includes(i)).map(f => (f.index + 0.5) * FRAME);
@@ -112,6 +127,13 @@ try {
 		});
 	}
 	console.log('captured', meta.frames.length);
+	if (args.screen === '1') {
+		console.log('overlay', await evaluate(`(() => { const w = document.querySelector('.nomercy-libass'); const c = w && w.querySelector('canvas'); const r = e => e && JSON.stringify(e.getBoundingClientRect()); return JSON.stringify({ wrapper: r(w), canvas: r(c), wrapperStyle: w && w.getAttribute('style'), canvasStyle: c && c.getAttribute('style'), parent: w && w.parentElement.id, vw: innerWidth, vh: innerHeight }); })()`));
+		fs.writeFileSync(path.join(args.out, 'paused.png'), Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
+		await send('Page.stopScreencast');
+		fs.writeFileSync(path.join(args.out, 'screen.json'), JSON.stringify(screenFrames));
+		console.log('screencast frames', screenFrames.length);
+	}
 }
 finally {
 	try { await send('Browser.close'); } catch { /* already closed */ }
