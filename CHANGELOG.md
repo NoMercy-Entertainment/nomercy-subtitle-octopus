@@ -1,5 +1,12 @@
 # Changelog — @nomercy-entertainment/nomercy-subtitle-octopus
 
+## [0.2.2] — 2026-11-04
+
+### Fixed
+
+- Captions now land on the correct video frame instead of one frame behind: the renderer asks libass one frame interval ahead so the caption is ready when its video frame is presented.
+- The sync lead is preserved correctly across seeks and resumes, is dropped while paused, and is never computed from an earlier time while playing.
+
 ## [0.2.1] — 2026-11-01
 
 ### Fixed
