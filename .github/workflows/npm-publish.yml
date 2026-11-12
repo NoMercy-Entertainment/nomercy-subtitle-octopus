@@ -12,6 +12,8 @@ on:
 
 jobs:
   publish-npm:
+    # workflow_run fires on every completed run; publish only after a green one.
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     # npm refuses a provenance attestation from a self-hosted runner, so this
     # job stays GitHub-hosted. Dropping --provenance would publish the same
     # bytes with no verifiable link back to the commit that built them.
