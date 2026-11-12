@@ -44,6 +44,8 @@ jobs:
       VERSION: ${{ inputs.version }}
       ROLLBACK_TO: ${{ inputs.rollback_to }}
       DIST_TAG: ${{ inputs.dist_tag }}
+      REASON: ${{ inputs.reason }}
+      DRY_RUN: ${{ inputs.dry_run }}
     steps:
       - uses: actions/checkout@v7
 
@@ -79,7 +81,7 @@ jobs:
         run: |
           NAME='${{ steps.pkg.outputs.name }}'
           echo "${DIST_TAG}: $(npm view "${NAME}" "dist-tags.${DIST_TAG}") -> ${ROLLBACK_TO}"
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             echo "dry run: npm dist-tag add ${NAME}@${ROLLBACK_TO} ${DIST_TAG}"
           else
             npm dist-tag add "${NAME}@${ROLLBACK_TO}" "${DIST_TAG}"
@@ -88,8 +90,8 @@ jobs:
       - name: Deprecate the retracted version
         run: |
           NAME='${{ steps.pkg.outputs.name }}'
-          MSG="RETRACTED: ${{ inputs.reason }} Use ${ROLLBACK_TO} instead."
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          MSG="RETRACTED: ${REASON} Use ${ROLLBACK_TO} instead."
+          if [ "$DRY_RUN" = "true" ]; then
             echo "dry run: npm deprecate ${NAME}@${VERSION} \"$MSG\""
           else
             npm deprecate "${NAME}@${VERSION}" "$MSG"
@@ -104,9 +106,9 @@ jobs:
             exit 0
           fi
           notice=$(printf '> [!CAUTION]\n> **RETRACTED.** %s\n>\n> `%s` now points at %s.\n\n' \
-            "${{ inputs.reason }}" "$DIST_TAG" "$ROLLBACK_TO")
+            "$REASON" "$DIST_TAG" "$ROLLBACK_TO")
           body=$(gh release view "$tag" --json body --jq .body)
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+          if [ "$DRY_RUN" = "true" ]; then
             echo "dry run: would prepend"
             echo "$notice"
           else
