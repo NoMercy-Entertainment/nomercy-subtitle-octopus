@@ -1,9 +1,14 @@
 import type { ProbeReport } from './probe';
 import type { OctopusOptions } from './types';
 import { summarize } from './probe';
+import { createWorker } from './worker-bridge';
+
+// A canvas moves to a worker once; a later renderer needs a fresh one.
+const transferredCanvases = new WeakSet<HTMLCanvasElement>();
 
 // A paused or seeking video presents no new frame, so these re-send the time.
 const CLOCK_EVENTS = ['seeked', 'ratechange', 'play', 'pause'] as const;
+const RESIZE_EVENTS = ['loadedmetadata', 'resize'] as const;
 const PROBE_SAMPLE_CAP = 20_000;
 const MAX_FRAME_STEP = 0.25;
 const STEP_WINDOW = 5;
@@ -30,23 +35,30 @@ export class LibassRenderer {
 	private readonly video: HTMLVideoElement;
 	private readonly onReady: () => void;
 	private readonly onError: (error: Error) => void;
+	private readonly onFontsLoaded: (count: number) => void;
+	private readonly suppliedCanvas: HTMLCanvasElement | null;
+	private readonly suppliedHome: { parent: Node; next: Node | null } | null;
 
 	constructor(
 		private readonly options: OctopusOptions,
 		private readonly workerUrl: string,
-		callbacks: { onReady: () => void; onError: (error: Error) => void },
+		callbacks: { onReady: () => void; onError: (error: Error) => void; onFontsLoaded?: (count: number) => void },
 	) {
 		this.video = options.video;
 		this.probing = options.debug === true;
 		this.onReady = callbacks.onReady;
 		this.onError = callbacks.onError;
+		this.onFontsLoaded = callbacks.onFontsLoaded ?? (() => {});
 
 		this.canvasParent = document.createElement('div');
 		this.canvasParent.className = 'nomercy-libass';
 		this.canvasParent.style.position = 'absolute';
 		this.canvasParent.style.pointerEvents = 'none';
 
-		this.canvas = options.canvas ?? document.createElement('canvas');
+		const supplied = options.canvas && !transferredCanvases.has(options.canvas) ? options.canvas : null;
+		this.suppliedCanvas = supplied;
+		this.suppliedHome = supplied?.parentNode ? { parent: supplied.parentNode, next: supplied.nextSibling } : null;
+		this.canvas = supplied ?? document.createElement('canvas');
 		// The buffer is the video frame's size (see start()); the box follows the
 		// wrapper, which CanvasGeometry keeps on the player. Without this the
 		// canvas shows at its pixel size and only lines up at the video's own size.
@@ -57,10 +69,12 @@ export class LibassRenderer {
 	}
 
 	async start(content: string, fonts: Record<string, ArrayBuffer>): Promise<void> {
-		const worker = new Worker(this.workerUrl, { type: 'classic' });
+		const worker = createWorker(this.workerUrl);
 		this.worker = worker;
 		this.pendingTrack = { content, fonts };
 		worker.addEventListener('message', this.onMessage);
+		for (const name of RESIZE_EVENTS)
+			this.video.addEventListener(name, this.onResizeEvent);
 
 		// Sized from the video's own frame, not the element's box: libass lays a
 		// script out against the resolution it was authored for, and handing it
@@ -70,6 +84,7 @@ export class LibassRenderer {
 		this.canvas.width = width;
 		this.canvas.height = height;
 
+		transferredCanvases.add(this.canvas);
 		const surface = this.canvas.transferControlToOffscreen();
 		worker.postMessage(
 			{
@@ -84,6 +99,8 @@ export class LibassRenderer {
 			[surface],
 		);
 	}
+
+	private readonly onResizeEvent = (): void => this.resize();
 
 	/** Resize the render surface after a layout change. */
 	resize(): void {
@@ -115,6 +132,8 @@ export class LibassRenderer {
 		this.videoFrame = 0;
 		for (const name of CLOCK_EVENTS)
 			this.video.removeEventListener(name, this.onClockEvent);
+		for (const name of RESIZE_EVENTS)
+			this.video.removeEventListener(name, this.onResizeEvent);
 
 		const worker = this.worker;
 		this.worker = null;
@@ -127,11 +146,13 @@ export class LibassRenderer {
 				// Teardown never throws outward.
 			}
 		}
+		if (this.suppliedCanvas && this.suppliedHome)
+			this.suppliedHome.parent.insertBefore(this.suppliedCanvas, this.suppliedHome.next);
 		this.canvasParent.remove();
 	}
 
 	private readonly onMessage = (event: MessageEvent): void => {
-		const msg = event.data as { type: string; message?: string; renderMs?: number; drew?: boolean; dropped?: number };
+		const msg = event.data as { type: string; message?: string; count?: number; renderMs?: number; drew?: boolean; dropped?: number };
 		if (msg.type === 'nm:ready') {
 			if (this.disposed || this.ready)
 				return;
@@ -146,6 +167,9 @@ export class LibassRenderer {
 			}
 			this.onReady();
 			this.startClock();
+		}
+		else if (msg.type === 'nm:fonts-loaded') {
+			this.onFontsLoaded(msg.count ?? 0);
 		}
 		else if (msg.type === 'nm:probe' && this.probing) {
 			if (this.renderSamples.length < PROBE_SAMPLE_CAP)

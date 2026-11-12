@@ -136,6 +136,7 @@ export class NMSubtitleOctopus {
 	resize(): void {
 		this.geometry?.detach();
 		this.geometry?.attach();
+		this.renderer?.resize();
 	}
 
 	/** Tear down the renderer, worker, and all DOM side-effects. */
@@ -223,6 +224,12 @@ export class NMSubtitleOctopus {
 					if (id !== this.loadId)
 						return;
 					this.emitter.emit('rendererReady', { url: this._trackUrl ?? '' });
+					this.emitter.emit('ready', undefined as void);
+				},
+				onFontsLoaded: (count: number) => {
+					if (id !== this.loadId)
+						return;
+					this.emitter.emit('fontsLoaded', { count });
 				},
 				onError: (error: Error) => {
 					if (id !== this.loadId)
@@ -242,7 +249,14 @@ export class NMSubtitleOctopus {
 			return;
 		}
 
-		await renderer.start(content, fonts);
+		try {
+			await renderer.start(content, fonts);
+		}
+		catch (error) {
+			if (id === this.loadId)
+				this.emitter.emit('error', error instanceof Error ? error : new Error(String(error)));
+			return;
+		}
 
 		const geometrySource = this.options.geometrySource ?? container;
 		this.attachGeometry(renderer.canvasParent, geometrySource);
