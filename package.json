@@ -1,7 +1,7 @@
 {
 	"name": "@nomercy-entertainment/nomercy-subtitle-octopus",
 	"type": "module",
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"packageManager": "yarn@4.18.1",
 	"description": "NoMercy-owned libass/SubtitleOctopus wrapper. Auth, cross-origin worker, canvas geometry, and lifecycle patches built in. No UI.",
 	"author": {

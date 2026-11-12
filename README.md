@@ -14,7 +14,7 @@ This package is **not** a fork of upstream — it's a thin consumer-side wrapper
 
 ## Binaries
 
-`dist/nomercy-libass-worker.{js,wasm,data}` are vendored from upstream `libass-wasm@4.1.0`, pending a first NoMercy build. The sister fork `packages/subtitles/JavascriptSubtitlesOctopus` builds these binaries in CI but is not yet consumed here — see `audit/ALIGNMENT.md`. License chain reproduced in `COPYRIGHT`.
+`dist/nomercy-libass-worker.{js,wasm,data}` come from the [nomercy-libass](https://github.com/NoMercy-Entertainment/nomercy-libass) v0.17.5-2 wasm release (FreeType 2.15.0, HarfBuzz 15.1.0). `src/__tests__/worker-binaries.test.ts` pins their SHA-256, so a stale copy fails the tests. License chain reproduced in `COPYRIGHT`.
 
 ## Worker files — copy to public
 
