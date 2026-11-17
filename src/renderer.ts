@@ -1,6 +1,8 @@
 import type { ProbeReport } from './probe';
 import type { OctopusOptions } from './types';
 import { summarize } from './probe';
+import type { Size } from './render-size';
+import { renderSizeFor, renderTierFor } from './render-size';
 import { createWorker } from './worker-bridge';
 
 // A canvas moves to a worker once; a later renderer needs a fresh one.
@@ -21,6 +23,9 @@ export class LibassRenderer {
 	readonly canvasParent: HTMLDivElement;
 
 	private worker: Worker | null = null;
+	private boxObserver: ResizeObserver | null = null;
+	private sentWidth = 0;
+	private sentHeight = 0;
 	private frame: number = 0;
 	private videoFrame: number = 0;
 	private ready = false;
@@ -76,13 +81,15 @@ export class LibassRenderer {
 		for (const name of RESIZE_EVENTS)
 			this.video.addEventListener(name, this.onResizeEvent);
 
-		// Sized from the video's own frame, not the element's box: libass lays a
-		// script out against the resolution it was authored for, and handing it
-		// the CSS size puts every \pos in the wrong place on a scaled player.
-		const width = this.video.videoWidth || this.video.clientWidth || 1;
-		const height = this.video.videoHeight || this.video.clientHeight || 1;
+		const { width, height } = this.renderSize();
+		this.sentWidth = width;
+		this.sentHeight = height;
 		this.canvas.width = width;
 		this.canvas.height = height;
+		if (typeof ResizeObserver !== 'undefined') {
+			this.boxObserver = new ResizeObserver(this.onResizeEvent);
+			this.boxObserver.observe(this.canvasParent);
+		}
 
 		transferredCanvases.add(this.canvas);
 		const surface = this.canvas.transferControlToOffscreen();
@@ -100,12 +107,40 @@ export class LibassRenderer {
 		);
 	}
 
-	private readonly onResizeEvent = (): void => this.resize();
+	// A box that moves without changing the capped size would only make the worker
+	// reallocate its frame, so the observer and the video events send changes only.
+	private readonly onResizeEvent = (): void => {
+		const { width, height } = this.renderSize();
+		if (width !== this.sentWidth || height !== this.sentHeight)
+			this.resize();
+	};
+
+	// The video's aspect, at the size it is shown (CSS box x pixel ratio), capped by
+	// the device tier. Never the CSS size: libass places \pos by the script's own aspect.
+	private renderSize(): Size {
+		const video: Size = {
+			width: this.video.videoWidth || this.video.clientWidth || 1,
+			height: this.video.videoHeight || this.video.clientHeight || 1,
+		};
+		// The rect, not clientWidth: a player scaled by a CSS transform shows a smaller box than it lays out.
+		const shown = this.canvasParent.getBoundingClientRect();
+		const box: Size = {
+			width: shown.width || this.video.clientWidth,
+			height: shown.height || this.video.clientHeight,
+		};
+		const nav = typeof navigator === 'undefined' ? undefined : navigator as Navigator & { deviceMemory?: number };
+		const tier = renderTierFor(nav?.deviceMemory, nav?.hardwareConcurrency);
+		return renderSizeFor(video, box, globalThis.devicePixelRatio || 1, tier);
+	}
 
 	/** Resize the render surface after a layout change. */
 	resize(): void {
-		const width = this.video.videoWidth || this.video.clientWidth || 1;
-		const height = this.video.videoHeight || this.video.clientHeight || 1;
+		// The worker has no canvas until its init finishes; nm:ready catches up.
+		if (!this.ready)
+			return;
+		const { width, height } = this.renderSize();
+		this.sentWidth = width;
+		this.sentHeight = height;
 		this.worker?.postMessage({ type: 'nm:resize', width, height });
 	}
 
@@ -135,6 +170,8 @@ export class LibassRenderer {
 		for (const name of RESIZE_EVENTS)
 			this.video.removeEventListener(name, this.onResizeEvent);
 
+		this.boxObserver?.disconnect();
+		this.boxObserver = null;
 		const worker = this.worker;
 		this.worker = null;
 		if (worker) {
@@ -165,6 +202,7 @@ export class LibassRenderer {
 				this.worker.postMessage({ type: 'nm:fonts-done' });
 				this.worker.postMessage({ type: 'nm:track', content: pending.content });
 			}
+			this.onResizeEvent();
 			this.onReady();
 			this.startClock();
 		}

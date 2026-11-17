@@ -305,6 +305,72 @@ describe('the caption canvas on a player that is not the video\'s own size', () 
 	});
 });
 
+describe('the render size on a small, low-memory screen', () => {
+	function showAt(video: FakeVideo, cssWidth: number, cssHeight: number): void {
+		video.clientWidth = cssWidth;
+		video.clientHeight = cssHeight;
+	}
+
+	it('renders a 1920x1080 video shown in a 960x540 box at DPR 2 on a low-memory device at 1280x720', async () => {
+		vi.stubGlobal('devicePixelRatio', 2);
+		vi.stubGlobal('navigator', { deviceMemory: 2, hardwareConcurrency: 4 });
+		const video = makeVideo();
+		showAt(video, 960, 540);
+
+		const renderer = await startRenderer(video);
+
+		const init = sent.find(m => m.type === 'nm:init');
+		expect([init?.width, init?.height]).toEqual([1280, 720]);
+		expect([renderer.canvas.width, renderer.canvas.height]).toEqual([1280, 720]);
+		expect(renderer.canvas.style.width).toBe('100%');
+	});
+
+	it('sizes by the box as shown when a transform scales the player', async () => {
+		vi.stubGlobal('devicePixelRatio', 1);
+		vi.stubGlobal('navigator', { deviceMemory: 8, hardwareConcurrency: 8 });
+		const rect = vi.spyOn(HTMLDivElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 960, height: 540 } as DOMRect);
+
+		await startRenderer(makeVideo());
+		rect.mockRestore();
+
+		const init = sent.find(m => m.type === 'nm:init');
+		expect([init?.width, init?.height]).toEqual([960, 540]);
+	});
+
+	it('holds a resize until the worker is ready, then sends the size it missed', async () => {
+		vi.stubGlobal('devicePixelRatio', 2);
+		vi.stubGlobal('navigator', { deviceMemory: 2, hardwareConcurrency: 4 });
+		const video = makeVideo();
+		showAt(video, 480, 270);
+		const renderer = new LibassRenderer({ video: video as unknown as HTMLVideoElement }, 'worker.js', { onReady: () => {}, onError: () => {} });
+		await renderer.start('[Script Info]', {});
+
+		showAt(video, 960, 540);
+		renderer.resize();
+		expect(sent.filter(m => m.type === 'nm:resize')).toHaveLength(0);
+
+		for (const listener of listeners)
+			listener({ data: { type: 'nm:ready' } } as MessageEvent);
+
+		const resize = sent.filter(m => m.type === 'nm:resize');
+		expect(resize.map(m => [m.width, m.height])).toEqual([[1280, 720]]);
+	});
+
+	it('sends the capped size again when the box changes', async () => {
+		vi.stubGlobal('devicePixelRatio', 2);
+		vi.stubGlobal('navigator', { deviceMemory: 2, hardwareConcurrency: 4 });
+		const video = makeVideo();
+		showAt(video, 960, 540);
+		const renderer = await startRenderer(video);
+
+		showAt(video, 480, 270);
+		renderer.resize();
+
+		const resize = sent.filter(m => m.type === 'nm:resize').at(-1);
+		expect([resize?.width, resize?.height]).toEqual([960, 540]);
+	});
+});
+
 describe('summarize', () => {
 	it('gives count, p50, p95 and max of a sample', () => {
 		const sample = Array.from({ length: 100 }, (_, i) => i + 1);
