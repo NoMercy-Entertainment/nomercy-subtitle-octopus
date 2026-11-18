@@ -31,8 +31,18 @@ function tierByCeilings(value: number | undefined, lowCeiling: number, mediumCei
 	return value <= mediumCeiling ? 'medium' : 'high';
 }
 
+// A Cast receiver or Android TV browser shares a TV box's small app heap (KMP: LOW at 256 MB)
+// while its rounded deviceMemory can still read 4 GB.
+const TV_USER_AGENT = /\bCrKey\/|DeviceType\/AndroidTV|\bAndroid TV\b/;
+
 /** The tier of this device. A value the browser does not report counts as no limit. */
-export function renderTierFor(deviceMemory: number | undefined, hardwareConcurrency: number | undefined): RenderTier {
+export function renderTierFor(
+	deviceMemory: number | undefined,
+	hardwareConcurrency: number | undefined,
+	userAgent?: string,
+): RenderTier {
+	if (userAgent && TV_USER_AGENT.test(userAgent))
+		return 'low';
 	const byMemory = tierByCeilings(deviceMemory, LOW_DEVICE_MEMORY_GB, MEDIUM_DEVICE_MEMORY_GB);
 	const byCores = tierByCeilings(hardwareConcurrency, LOW_CORES, MEDIUM_CORES);
 	return ORDER[Math.min(ORDER.indexOf(byMemory), ORDER.indexOf(byCores))];

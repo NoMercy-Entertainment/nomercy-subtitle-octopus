@@ -129,7 +129,7 @@ export class LibassRenderer {
 			height: shown.height || this.video.clientHeight,
 		};
 		const nav = typeof navigator === 'undefined' ? undefined : navigator as Navigator & { deviceMemory?: number };
-		const tier = renderTierFor(nav?.deviceMemory, nav?.hardwareConcurrency);
+		const tier = renderTierFor(nav?.deviceMemory, nav?.hardwareConcurrency, nav?.userAgent);
 		return renderSizeFor(video, box, globalThis.devicePixelRatio || 1, tier);
 	}
 

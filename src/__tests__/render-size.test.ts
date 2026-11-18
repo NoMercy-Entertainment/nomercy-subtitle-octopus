@@ -21,6 +21,18 @@ describe('renderTierFor', () => {
 	it('leaves a browser that reports nothing at the top tier', () => {
 		expect(renderTierFor(undefined, undefined)).toBe('high');
 	});
+
+	// The living-room Nokia box (3.4 GB, 4 cores) reads as 4 GB and medium; KMP puts it in LOW by its 256 MB heap.
+	it('puts a Cast or Android TV receiver in the low tier whatever it reports', () => {
+		const castShell = 'Mozilla/5.0 (Linux; Android 11) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36 CrKey/1.56.500000 DeviceType/AndroidTV';
+		expect(renderTierFor(4, 4, castShell)).toBe('low');
+		expect(renderTierFor(8, 8, 'Mozilla/5.0 (X11; Linux armv7l) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0 Safari/537.36 CrKey/1.56.500000')).toBe('low');
+	});
+
+	it('leaves a desktop browser to its memory and cores', () => {
+		const desktop = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36';
+		expect(renderTierFor(8, 8, desktop)).toBe('high');
+	});
 });
 
 describe('renderScaleFor', () => {
